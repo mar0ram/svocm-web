@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SVOCM &amp; Syntax Tree Analyzer</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- パスワード入力モーダル（初期画面） -->
+  <div id="auth-modal" class="modal-overlay">
+    <div class="modal-card">
+      <h2>ログイン認証</h2>
+      <p>APIを使用するためのパスワードを入力してください。</p>
+      <input type="password" id="password-input" placeholder="パスワードを入力" autocomplete="current-password">
+      <p id="auth-error" class="error-text hidden">パスワードを入力してください。</p>
+      <button id="login-btn" class="primary-btn">利用を開始する</button>
+    </div>
+  </div>
+
+  <!-- メイン画面 -->
+  <div class="container">
+    <header class="app-header">
+      <h1>SVOCM &amp; Syntax Analyzer</h1>
+      <div class="header-right">
+        <div id="server-status" class="status-badge waking">
+          <span class="status-dot"></span>
+          <span id="status-text">サーバー確認中...</span>
+        </div>
+        <button id="logout-btn" class="text-btn">パスワード変更</button>
+      </div>
+    </header>
+
+    <!-- モード切り替えタブ -->
+    <div class="tabs">
+      <button class="tab-btn active" data-mode="english">英文分析（SVOCM・統語ツリー）</button>
+      <button class="tab-btn" data-mode="japanese">日本語文分析（英訳用SVOCM）</button>
+    </div>
+
+    <!-- 入力エリア -->
+    <div class="input-section">
+      <textarea id="input-text" rows="3" placeholder="ここに分析したい英文を入力してください（例: Reading English books makes your vocabulary richer.）"></textarea>
+      <div class="action-bar">
+        <span id="Wakeup-hint" class="hint-text">※スリープ復帰時は初回のみ最大50秒ほどかかります</span>
+        <button id="analyze-btn" class="primary-btn">分析する</button>
+      </div>
+    </div>
+
+    <!-- エラー表示 -->
+    <div id="error-box" class="error-box hidden"></div>
+
+    <!-- ローディング表示 -->
+    <div id="loading" class="loading-box hidden">
+      <div class="spinner"></div>
+      <p>解析中です...（スリープ復帰時はしばらくお待ちください）</p>
+    </div>
+
+    <!-- 英文分析の結果エリア -->
+    <div id="en-result" class="result-section hidden">
+      <div class="card">
+        <div class="pattern-header">
+          <span class="label">判定文型</span>
+          <span id="en-pattern" class="pattern-badge"></span>
+        </div>
+
+        <h3>チャンク（意味の塊）ごとのSVOCM構造</h3>
+        <div id="en-chunks" class="chunks-container"></div>
+
+        <div class="legend">
+          <span class="legend-item"><b class="role-s">S</b> 主語</span>
+          <span class="legend-item"><b class="role-v">V</b> 動詞</span>
+          <span class="legend-item"><b class="role-o">O</b> 目的語</span>
+          <span class="legend-item"><b class="role-c">C</b> 補語</span>
+          <span class="legend-item"><b class="role-m">M</b> 修飾語</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>統語ツリー（係り受け構造）</h3>
+        <div id="en-tree" class="tree-container"></div>
+      </div>
+
+      <div class="card">
+        <h3>単語ごとの詳細データ</h3>
+        <div class="table-wrapper">
+          <table class="token-table">
+            <thead>
+              <tr>
+                <th>単語</th>
+                <th>原形</th>
+                <th>品詞</th>
+                <th>SVOCM</th>
+                <th>係り受けタグ</th>
+                <th>係り先（親）</th>
+              </tr>
+            </thead>
+            <tbody id="en-tokens-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- 日本語分析の結果エリア -->
+    <div id="ja-result" class="result-section hidden">
+      <div class="card">
+        <h3>英語語順（S → V → O/C → M）への変換ガイド</h3>
+        <div id="ja-order-guide" class="guide-grid"></div>
+      </div>
+
+      <div class="card">
+        <h3>文節ごとの役割判定</h3>
+        <div id="ja-clauses" class="chunks-container"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
