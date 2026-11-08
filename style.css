@@ -132,6 +132,12 @@ textarea:focus {
   gap: 8px;
 }
 
+.action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .hint-text {
   font-size: 0.8rem;
   color: #64748b;
@@ -155,6 +161,22 @@ textarea:focus {
 .primary-btn:disabled {
   background: #94a3b8;
   cursor: not-allowed;
+}
+
+.secondary-btn {
+  background: #f1f5f9;
+  color: #334155;
+  border: 1px solid #cbd5e1;
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.secondary-btn:hover {
+  background: #e2e8f0;
 }
 
 .text-btn {
@@ -184,6 +206,23 @@ textarea:focus {
   padding-bottom: 8px;
 }
 
+.card-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 8px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.card-header-row h3 {
+  border-bottom: none;
+  padding-bottom: 0;
+  margin-bottom: 0;
+}
+
 .pattern-header {
   display: flex;
   align-items: center;
@@ -200,96 +239,283 @@ textarea:focus {
   font-size: 1.1rem;
 }
 
-/* SVOCM チャンク表示 */
+/* SVOCM チャンク表示（英語は縦並び、日本語は常時横並び） */
 .chunks-container {
   display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
+  flex-direction: column;
+  gap: 10px;
   margin-bottom: 16px;
+}
+
+#ja-clauses.chunks-container {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 10px;
 }
 
 .chunk-box {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  justify-content: center;
-  padding: 10px 16px;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
+  padding: 12px 16px;
   border-radius: 8px;
   border: 2px solid transparent;
   background: #f8fafc;
 }
 
+#ja-clauses .chunk-box {
+  width: auto;
+  max-width: 100%;
+}
+
 .chunk-box.chunk-nested {
-  padding: 12px 14px;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 12px 16px;
   border-style: dashed;
   border-width: 2px;
 }
 
 .chunk-nested-header {
   display: flex;
+  flex-direction: row;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 10px;
-  font-size: 0.9rem;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  font-size: 0.95rem;
   font-weight: 700;
 }
 
+.chunk-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.chunk-toggle-btn {
+  background: #ffffff;
+  color: #334155;
+  border: 1px solid #94a3b8;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.chunk-toggle-btn:hover {
+  background: #f1f5f9;
+  border-color: #475569;
+}
+
+/* 展開される内側コンテナ（横に連結して折り返す） */
 .sub-chunks-container {
   display: flex;
+  flex-direction: row;
   flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
-  padding: 8px;
-  background: rgba(255, 255, 255, 0.85);
+  width: 100%;
+  padding: 10px 14px;
+  margin-left: 4px;
+  background: rgba(255, 255, 255, 0.92);
   border-radius: 8px;
-  border: 1px solid rgba(148, 163, 184, 0.35);
+  border: 1px solid rgba(148, 163, 184, 0.45);
 }
 
-.sub-chunks-container .chunk-box {
-  padding: 6px 12px;
+.inline-chunk-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1.5px solid transparent;
+  font-size: 0.95rem;
+  font-weight: 600;
 }
 
-.sub-chunks-container .chunk-text {
+.inline-chunk-text {
+  line-height: 1.35;
+}
+
+.sub-chunk-sep {
+  color: #94a3b8;
+  font-weight: 700;
   font-size: 1rem;
+  padding: 0 2px;
+  user-select: none;
+}
+
+/* 複数の関係詞節や連鎖関係代名詞のまとまりを区別するグレー枠 */
+.mod-clause-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  border: 1px dashed #94a3b8;
+}
+
+.mod-clause-group.m-shade-0 {
+  background-color: #f8fafc;
+  border-color: #94a3b8;
+}
+
+.mod-clause-group.m-shade-1 {
+  background-color: #e2e8f0;
+  border-color: #64748b;
+}
+
+.mod-clause-group.m-shade-2 {
+  background-color: #cbd5e1;
+  border-color: #475569;
 }
 
 .chunk-text {
-  font-size: 1.15rem;
+  font-size: 1.1rem;
   font-weight: 600;
-  margin-bottom: 4px;
+  line-height: 1.45;
+  word-break: break-word;
+  flex: 1 1 auto;
 }
 
 .chunk-role {
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   font-weight: 700;
-  padding: 2px 10px;
-  border-radius: 999px;
+  padding: 3px 10px;
+  border-radius: 6px;
+  color: #ffffff;
+  white-space: nowrap;
+  flex-shrink: 0;
+  text-align: center;
+}
+
+/* SVOCM カラー定義（主節のS/V/O/Cおよび先行詞は骨格カラー） */
+.role-S, .role-s { border-color: #3b82f6; background-color: #eff6ff; }
+.role-S > .chunk-role,
+.role-S > .chunk-nested-header .chunk-role,
+.inline-chunk-item.role-S > .chunk-role,
+b.role-s { background-color: #2563eb; color: #fff; }
+
+.role-V, .role-v, .role-VC { border-color: #ef4444; background-color: #fef2f2; }
+.role-V > .chunk-role,
+.role-V > .chunk-nested-header .chunk-role,
+.role-VC > .chunk-role,
+.inline-chunk-item.role-V > .chunk-role,
+b.role-v { background-color: #dc2626; color: #fff; }
+
+.role-O, .role-o { border-color: #10b981; background-color: #ecfdf5; }
+.role-O > .chunk-role,
+.role-O > .chunk-nested-header .chunk-role,
+.inline-chunk-item.role-O > .chunk-role,
+b.role-o { background-color: #059669; color: #fff; }
+
+.role-C, .role-c { border-color: #f59e0b; background-color: #fffbeb; }
+.role-C > .chunk-role,
+.role-C > .chunk-nested-header .chunk-role,
+.inline-chunk-item.role-C > .chunk-role,
+b.role-c { background-color: #d97706; color: #fff; }
+
+/* 修飾語 (M) ベースグレー & 濃淡3段階 */
+.role-M, .role-m, .role-M.m-shade-0 {
+  border-color: #94a3b8;
+  background-color: #f8fafc;
+}
+.role-M > .chunk-role,
+.role-M > .chunk-nested-header .chunk-role,
+.role-M.m-shade-0 > .chunk-role,
+.role-M.m-shade-0 > .chunk-nested-header .chunk-role,
+b.role-m {
+  background-color: #64748b;
   color: #ffffff;
 }
 
-.chunk-note {
-  font-size: 0.75rem;
-  color: #475569;
-  margin-top: 4px;
+.role-M.m-shade-1 {
+  border-color: #64748b;
+  background-color: #f1f5f9;
+}
+.role-M.m-shade-1 > .chunk-role,
+.role-M.m-shade-1 > .chunk-nested-header .chunk-role {
+  background-color: #475569;
+  color: #ffffff;
 }
 
-/* SVOCM カラー定義 */
-.role-S, .role-s { border-color: #3b82f6; background-color: #eff6ff; }
-.role-S .chunk-role, b.role-s { background-color: #2563eb; color: #fff; padding: 2px 8px; border-radius: 4px; }
+.role-M.m-shade-2 {
+  border-color: #475569;
+  background-color: #e2e8f0;
+}
+.role-M.m-shade-2 > .chunk-role,
+.role-M.m-shade-2 > .chunk-nested-header .chunk-role {
+  background-color: #334155;
+  color: #ffffff;
+}
 
-.role-V, .role-v, .role-VC { border-color: #ef4444; background-color: #fef2f2; }
-.role-V .chunk-role, .role-VC .chunk-role, b.role-v { background-color: #dc2626; color: #fff; padding: 2px 8px; border-radius: 4px; }
+.role-Conj { border-color: #cbd5e1; background-color: #f8fafc; }
+.role-Conj > .chunk-role,
+.role-Conj > .chunk-nested-header .chunk-role,
+.inline-chunk-item.role-Conj > .chunk-role { background-color: #94a3b8; color: #fff; }
 
-.role-O, .role-o { border-color: #10b981; background-color: #ecfdf5; }
-.role-O .chunk-role, b.role-o { background-color: #059669; color: #fff; padding: 2px 8px; border-radius: 4px; }
+/* 関係詞節・分詞修飾の内部におけるSVOCM別グレースケール色分け */
+.gray-role-S {
+  background-color: #e2e8f0;
+  border-color: #475569;
+  color: #0f172a;
+}
+.gray-role-S > .chunk-role {
+  background-color: #334155;
+  color: #ffffff;
+}
 
-.role-C, .role-c { border-color: #f59e0b; background-color: #fffbeb; }
-.role-C .chunk-role, b.role-c { background-color: #d97706; color: #fff; padding: 2px 8px; border-radius: 4px; }
+.gray-role-V {
+  background-color: #cbd5e1;
+  border-color: #1e293b;
+  color: #0f172a;
+}
+.gray-role-V > .chunk-role {
+  background-color: #0f172a;
+  color: #ffffff;
+}
 
-.role-M, .role-m { border-color: #8b5cf6; background-color: #f5f3ff; }
-.role-M .chunk-role, b.role-m { background-color: #7c3aed; color: #fff; padding: 2px 8px; border-radius: 4px; }
+.gray-role-O {
+  background-color: #e5e7eb;
+  border-color: #4b5563;
+  color: #111827;
+}
+.gray-role-O > .chunk-role {
+  background-color: #4b5563;
+  color: #ffffff;
+}
 
-.role-Conj { border-color: #64748b; background-color: #f1f5f9; }
-.role-Conj .chunk-role { background-color: #475569; color: #fff; padding: 2px 8px; border-radius: 4px; }
+.gray-role-C {
+  background-color: #e7e5e4;
+  border-color: #57534e;
+  color: #1c1917;
+}
+.gray-role-C > .chunk-role {
+  background-color: #57534e;
+  color: #ffffff;
+}
+
+.gray-role-M, .gray-role-Conj {
+  background-color: #f8fafc;
+  border-color: #94a3b8;
+  color: #334155;
+}
+.gray-role-M > .chunk-role, .gray-role-Conj > .chunk-role {
+  background-color: #64748b;
+  color: #ffffff;
+}
 
 .legend {
   display: flex;
@@ -300,11 +526,106 @@ textarea:focus {
   padding-top: 8px;
 }
 
-/* 統語ツリー SVG */
+.legend-item b {
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+/* 統語ツリー SVG と拡大縮小コントロール */
+.zoom-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #f8fafc;
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+
+.zoom-btn {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  color: #334155;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  line-height: 1.2;
+}
+
+.zoom-btn:hover {
+  background: #f1f5f9;
+}
+
+.zoom-level {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #334155;
+  min-width: 46px;
+  text-align: center;
+}
+
 .tree-container {
   width: 100%;
-  overflow-x: auto;
-  padding: 12px 0;
+  overflow: auto;
+  padding: 12px 4px;
+  max-height: 75vh;
+  border: 1px solid #f1f5f9;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+/* タップで開閉する詳細データ（details / summary） */
+.collapsible-card {
+  padding: 0;
+  overflow: hidden;
+}
+
+.collapsible-summary {
+  padding: 16px 20px;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #334155;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  transition: background 0.15s;
+}
+
+.collapsible-summary::-webkit-details-marker {
+  display: none;
+}
+
+.collapsible-summary::after {
+  content: "＋ 展開する";
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #2563eb;
+  background: #eff6ff;
+  padding: 4px 10px;
+  border-radius: 6px;
+}
+
+details[open] > .collapsible-summary {
+  border-bottom: 1px solid #e2e8f0;
+}
+
+details[open] > .collapsible-summary::after {
+  content: "− 閉じる";
+  color: #475569;
+  background: #f1f5f9;
+}
+
+.collapsible-summary:hover {
+  background: #f8fafc;
+}
+
+.collapsible-content {
+  padding: 16px 20px 20px;
 }
 
 /* テーブル */
@@ -327,6 +648,78 @@ textarea:focus {
 .token-table th {
   background: #f8fafc;
   color: #475569;
+}
+
+/* 文法網羅チェッカーテーブル */
+.grammar-check-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.grammar-check-table th,
+.grammar-check-table td {
+  border-bottom: 1px solid #e2e8f0;
+  padding: 10px 12px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.grammar-check-table th {
+  background: #f8fafc;
+  color: #475569;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.grammar-row-active {
+  background-color: #ffffff;
+}
+
+.grammar-row-inactive {
+  background-color: #f8fafc;
+  color: #94a3b8;
+}
+
+.grammar-cat-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-weight: 700;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.grammar-row-active .grammar-cat-badge {
+  background-color: #1e293b;
+  color: #ffffff;
+}
+
+.grammar-row-inactive .grammar-cat-badge {
+  background-color: #e2e8f0;
+  color: #64748b;
+}
+
+.grammar-target-desc {
+  font-size: 0.8rem;
+  color: #64748b;
+  min-width: 180px;
+}
+
+.grammar-detected-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.grammar-detected-item {
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.grammar-none-item {
+  color: #94a3b8;
+  font-size: 0.85rem;
 }
 
 /* 日本語ガイド */
