@@ -356,30 +356,32 @@ textarea:focus {
   user-select: none;
 }
 
-/* 複数の関係詞節や連鎖関係代名詞のまとまりを区別するグレー枠 */
+/* 入れ子の内側の節をまとめるグレー枠 */
 .mod-clause-group {
   display: inline-flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  padding: 5px 8px;
+  padding: 6px 10px;
   border-radius: 8px;
-  border: 1px dashed #94a3b8;
+  border: 1.5px dashed #94a3b8;
+  background-color: rgba(255, 255, 255, 0.75);
 }
 
 .mod-clause-group.m-shade-0 {
-  background-color: #f8fafc;
   border-color: #94a3b8;
 }
 
 .mod-clause-group.m-shade-1 {
-  background-color: #e2e8f0;
   border-color: #64748b;
 }
 
 .mod-clause-group.m-shade-2 {
-  background-color: #cbd5e1;
   border-color: #475569;
+}
+
+.mod-clause-group.m-shade-3 {
+  border-color: #334155;
 }
 
 .chunk-text {
@@ -427,37 +429,68 @@ b.role-o { background-color: #059669; color: #fff; }
 .inline-chunk-item.role-C > .chunk-role,
 b.role-c { background-color: #d97706; color: #fff; }
 
-/* 修飾語 (M) ベースグレー & 濃淡3段階 */
-.role-M, .role-m, .role-M.m-shade-0 {
+.role-強調部分 { border-color: #8b5cf6; background-color: #f5f3ff; }
+.role-強調部分 > .chunk-role,
+.role-強調部分 > .chunk-nested-header .chunk-role,
+.inline-chunk-item.role-強調部分 > .chunk-role,
+.gray-role-強調部分 > .chunk-role { background-color: #7c3aed; color: #ffffff; }
+.gray-role-強調部分 { background-color: #f5f3ff; border-color: #8b5cf6; color: #4c1d95; }
+
+/* チャンク（節）単位のグレースケール定義（入れ子の内[0:薄] → 外[3:濃]） */
+.role-M, .role-m, .role-関係詞, .m-shade-0 {
   border-color: #94a3b8;
-  background-color: #f8fafc;
+  background-color: #f1f5f9;
+  color: #1e293b;
 }
 .role-M > .chunk-role,
 .role-M > .chunk-nested-header .chunk-role,
-.role-M.m-shade-0 > .chunk-role,
-.role-M.m-shade-0 > .chunk-nested-header .chunk-role,
+.role-関係詞 > .chunk-role,
+.role-関係詞 > .chunk-nested-header .chunk-role,
+.m-shade-0 > .chunk-role,
+.m-shade-0 > .chunk-nested-header .chunk-role,
+.inline-chunk-item.m-shade-0 > .chunk-role {
+  background-color: #64748b;
+  color: #ffffff;
+}
+
 b.role-m {
   background-color: #64748b;
   color: #ffffff;
 }
 
-.role-M.m-shade-1 {
+.m-shade-1 {
   border-color: #64748b;
-  background-color: #f1f5f9;
+  background-color: #e2e8f0;
+  color: #0f172a;
 }
-.role-M.m-shade-1 > .chunk-role,
-.role-M.m-shade-1 > .chunk-nested-header .chunk-role {
+.m-shade-1 > .chunk-role,
+.m-shade-1 > .chunk-nested-header .chunk-role,
+.inline-chunk-item.m-shade-1 > .chunk-role {
   background-color: #475569;
   color: #ffffff;
 }
 
-.role-M.m-shade-2 {
+.m-shade-2 {
   border-color: #475569;
-  background-color: #e2e8f0;
+  background-color: #cbd5e1;
+  color: #0f172a;
 }
-.role-M.m-shade-2 > .chunk-role,
-.role-M.m-shade-2 > .chunk-nested-header .chunk-role {
+.m-shade-2 > .chunk-role,
+.m-shade-2 > .chunk-nested-header .chunk-role,
+.inline-chunk-item.m-shade-2 > .chunk-role {
   background-color: #334155;
+  color: #ffffff;
+}
+
+.m-shade-3 {
+  border-color: #334155;
+  background-color: #94a3b8;
+  color: #0f172a;
+}
+.m-shade-3 > .chunk-role,
+.m-shade-3 > .chunk-nested-header .chunk-role,
+.inline-chunk-item.m-shade-3 > .chunk-role {
+  background-color: #1e293b;
   color: #ffffff;
 }
 
@@ -465,57 +498,6 @@ b.role-m {
 .role-Conj > .chunk-role,
 .role-Conj > .chunk-nested-header .chunk-role,
 .inline-chunk-item.role-Conj > .chunk-role { background-color: #94a3b8; color: #fff; }
-
-/* 関係詞節・分詞修飾の内部におけるSVOCM別グレースケール色分け */
-.gray-role-S {
-  background-color: #e2e8f0;
-  border-color: #475569;
-  color: #0f172a;
-}
-.gray-role-S > .chunk-role {
-  background-color: #334155;
-  color: #ffffff;
-}
-
-.gray-role-V {
-  background-color: #cbd5e1;
-  border-color: #1e293b;
-  color: #0f172a;
-}
-.gray-role-V > .chunk-role {
-  background-color: #0f172a;
-  color: #ffffff;
-}
-
-.gray-role-O {
-  background-color: #e5e7eb;
-  border-color: #4b5563;
-  color: #111827;
-}
-.gray-role-O > .chunk-role {
-  background-color: #4b5563;
-  color: #ffffff;
-}
-
-.gray-role-C {
-  background-color: #e7e5e4;
-  border-color: #57534e;
-  color: #1c1917;
-}
-.gray-role-C > .chunk-role {
-  background-color: #57534e;
-  color: #ffffff;
-}
-
-.gray-role-M, .gray-role-Conj {
-  background-color: #f8fafc;
-  border-color: #94a3b8;
-  color: #334155;
-}
-.gray-role-M > .chunk-role, .gray-role-Conj > .chunk-role {
-  background-color: #64748b;
-  color: #ffffff;
-}
 
 .legend {
   display: flex;
@@ -793,6 +775,16 @@ details[open] > .collapsible-summary::after {
 .error-box {
   background: #fee2e2;
   color: #991b1b;
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  font-weight: 600;
+}
+
+.warning-box {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #f59e0b;
   padding: 12px 16px;
   border-radius: 8px;
   margin-bottom: 20px;

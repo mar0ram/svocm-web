@@ -29,9 +29,99 @@ let baseTreeWidth = 520;
 let baseTreeHeight = 300;
 
 const errorBox = document.getElementById("error-box");
+const warningBox = document.getElementById("warning-box");
 const loadingBox = document.getElementById("loading");
 const enResult = document.getElementById("en-result");
 const jaResult = document.getElementById("ja-result");
+
+// 頻出英単語スペルミス辞書
+const COMMON_MISSPELLINGS = {
+  teh: "the",
+  recieve: "receive",
+  recieved: "received",
+  occured: "occurred",
+  occuring: "occurring",
+  seperate: "separate",
+  definately: "definitely",
+  definitly: "definitely",
+  accomodate: "accommodate",
+  untill: "until",
+  beggining: "beginning",
+  convinient: "convenient",
+  techonological: "technological",
+  arguement: "argument",
+  beleive: "believe",
+  enviroment: "environment",
+  goverment: "government",
+  independant: "independent",
+  neccessary: "necessary",
+  occassion: "occasion",
+  priviledge: "privilege",
+  recomend: "recommend",
+  succesful: "successful",
+  successfull: "successful",
+  tommorow: "tomorrow",
+  wierd: "weird",
+  writting: "writing",
+  freind: "friend",
+  knowlege: "knowledge",
+  maintainance: "maintenance",
+  percieve: "perceive",
+  appearence: "appearance",
+  buisness: "business",
+  calender: "calendar",
+  collegue: "colleague",
+  concious: "conscious",
+  curiousity: "curiosity",
+  dissapear: "disappear",
+  embarass: "embarrass",
+  existance: "existence",
+  foriegn: "foreign",
+  fourty: "forty",
+  grammer: "grammar",
+  harrass: "harass",
+  immediatly: "immediately",
+  lonley: "lonely",
+  millenium: "millennium",
+  mispell: "misspell",
+  noticable: "noticeable",
+  parliment: "parliament",
+  persistant: "persistent",
+  politican: "politician",
+  posession: "possession",
+  prefered: "preferred",
+  publically: "publicly",
+  realy: "really",
+  refered: "referred",
+  religous: "religious",
+  rember: "remember",
+  sieze: "seize",
+  similer: "similar",
+  speach: "speech",
+  stoped: "stopped",
+  studing: "studying",
+  suprise: "surprise",
+  tendancy: "tendency",
+  therefor: "therefore",
+  threshhold: "threshold",
+  truely: "truly",
+  unfortunatly: "unfortunately",
+  whereever: "wherever",
+  wich: "which",
+  peopel: "people",
+  becuase: "because",
+  thier: "their",
+  alothough: "although",
+  thoought: "thought",
+  recogize: "recognize"
+};
+
+// 母音なしでも許容される略語・語彙セット
+const ALLOWED_NO_VOWEL_WORDS = new Set([
+  "mr", "mrs", "ms", "dr", "st", "vs", "etc", "tv", "pc", "ai", "it", "uk", "us", "un", "eu",
+  "by", "my", "try", "fly", "cry", "dry", "shy", "sky", "spy", "why", "gym", "myth", "rhythm", "lynx", "hymn",
+  "shh", "hmm", "brr", "nth"
+]);
 
 // 1. ページ読み込み時の初期化とスリープ対策
 window.addEventListener("DOMContentLoaded", () => {
@@ -96,6 +186,7 @@ if (clearBtn) {
   clearBtn.addEventListener("click", () => {
     inputText.value = "";
     errorBox.classList.add("hidden");
+    if (warningBox) warningBox.classList.add("hidden");
     enResult.classList.add("hidden");
     jaResult.classList.add("hidden");
     inputText.focus();
@@ -104,7 +195,7 @@ if (clearBtn) {
 
 // 統語ツリーの拡大・縮小処理
 function applyTreeZoom(zoomValue) {
-  currentTreeZoom = Math.min(Math.max(zoomValue, 0.3), 2.5);
+  currentTreeZoom = Math.min(Math.max(zoomValue, 0.1), 2.5);
   const svgEl = document.querySelector("#en-tree svg");
   if (svgEl) {
     svgEl.setAttribute("width", Math.round(baseTreeWidth * currentTreeZoom));
@@ -112,6 +203,16 @@ function applyTreeZoom(zoomValue) {
   }
   if (zoomLevelText) {
     zoomLevelText.textContent = `${Math.round(currentTreeZoom * 100)}%`;
+  }
+}
+
+// 統語ツリー全体が枠内にちょうど収まる倍率を計算して適用する関数
+function fitTreeToContainer() {
+  const treeContainer = document.getElementById("en-tree");
+  if (treeContainer && baseTreeWidth > 0) {
+    const containerW = Math.max(treeContainer.clientWidth - 24, 200);
+    const fitScale = Math.min(1.0, containerW / baseTreeWidth);
+    applyTreeZoom(fitScale);
   }
 }
 
@@ -125,14 +226,7 @@ if (zoomResetBtn) {
   zoomResetBtn.addEventListener("click", () => applyTreeZoom(1.0));
 }
 if (zoomFitBtn) {
-  zoomFitBtn.addEventListener("click", () => {
-    const treeContainer = document.getElementById("en-tree");
-    if (treeContainer && baseTreeWidth > 0) {
-      const containerW = treeContainer.clientWidth - 20;
-      const fitScale = Math.min(1.0, containerW / baseTreeWidth);
-      applyTreeZoom(fitScale);
-    }
-  });
+  zoomFitBtn.addEventListener("click", () => fitTreeToContainer());
 }
 
 // 3. 英語 / 日本語モードの切り替え
@@ -143,6 +237,7 @@ tabBtns.forEach((btn) => {
     currentMode = btn.dataset.mode;
 
     errorBox.classList.add("hidden");
+    if (warningBox) warningBox.classList.add("hidden");
     enResult.classList.add("hidden");
     jaResult.classList.add("hidden");
 
@@ -153,6 +248,103 @@ tabBtns.forEach((btn) => {
     }
   });
 });
+
+// ① 入力言語のバリデーション（英語モードは英語のみ、日本語モードは日本語のみ）
+function validateLanguageInput(text, mode) {
+  const hasJaChars = /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF\u3400-\u4DBF\u3000-\u303F\uFF01-\uFF60]/.test(text);
+  const hasKanaOrKanji = /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF\u3400-\u4DBF]/.test(text);
+  const hasEnAlpha = /[a-zA-Z]/.test(text);
+
+  if (mode === "english") {
+    if (hasJaChars || !hasEnAlpha) {
+      return "英文分析モードでは英語で入力してください（日本語や全角記号が含まれているか、英単語が入力されていません）。";
+    }
+  } else if (mode === "japanese") {
+    if (!hasKanaOrKanji) {
+      return "日本語分析モードでは日本語で入力してください。";
+    }
+  }
+  return null;
+}
+
+// ② 英語スペルミス検査（ローカル辞書＋綴り字ルール＋Datamuse辞書API照会）
+async function checkEnglishSpelling(text) {
+  const rawWords = text.match(/[A-Za-z]+(?:'[A-Za-z]+)?/g) || [];
+  const findings = [];
+  const seenLower = new Set();
+  const candidatesForApi = [];
+
+  for (const raw of rawWords) {
+    if (raw.includes("'")) continue;
+    const lower = raw.toLowerCase();
+    if (seenLower.has(lower)) continue;
+    seenLower.add(lower);
+
+    // 1. 頻出タイポ辞書に一致
+    if (COMMON_MISSPELLINGS[lower]) {
+      findings.push(`"${raw}"（候補: ${COMMON_MISSPELLINGS[lower]}）`);
+      continue;
+    }
+
+    // 2. 同じ文字が3連続以上（例: goood, theee）
+    if (/(.)\1\1/i.test(raw)) {
+      findings.push(`"${raw}"`);
+      continue;
+    }
+
+    // 3. 母音(a,e,i,o,u,y)が1つもない2文字以上の小文字語
+    if (lower.length >= 2 && !/[aeiouy]/.test(lower) && !ALLOWED_NO_VOWEL_WORDS.has(lower) && raw === lower) {
+      findings.push(`"${raw}"`);
+      continue;
+    }
+
+    // 4. オンライン辞書APIによるチェック対象（固有名詞の可能性がある先頭大文字語以外の3文字以上の単語）
+    if (lower.length >= 3 && (raw === lower || text.trim().startsWith(raw))) {
+      candidatesForApi.push(raw);
+    }
+  }
+
+  // Datamuse APIでスペル実在確認（タイムアウト1.5秒）
+  if (candidatesForApi.length > 0) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 1500);
+    try {
+      await Promise.all(
+        candidatesForApi.slice(0, 20).map(async (word) => {
+          const low = word.toLowerCase();
+          const res = await fetch(`https://api.datamuse.com/words?sp=${encodeURIComponent(low)}&max=5`, {
+            signal: controller.signal
+          });
+          if (!res.ok) return;
+          const list = await res.json();
+          const exactMatch = Array.isArray(list) && list.some((item) => item.word && item.word.toLowerCase() === low);
+          if (!exactMatch) {
+            const sugRes = await fetch(`https://api.datamuse.com/sug?s=${encodeURIComponent(low)}&max=3`, {
+              signal: controller.signal
+            });
+            let suggestionText = "";
+            if (sugRes.ok) {
+              const sugList = await sugRes.json();
+              if (Array.isArray(sugList) && sugList.length > 0) {
+                const topSug = sugList[0].word;
+                if (topSug && topSug.toLowerCase() !== low) {
+                  suggestionText = `（候補: ${topSug}）`;
+                }
+              }
+            }
+            findings.push(`"${word}"${suggestionText}`);
+          }
+        })
+      );
+    } catch (_) {
+      // ネットワーク制限やタイムアウト時はローカル検出結果のみ使用
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  return findings;
+}
 
 // 4. 分析リクエストの送信
 analyzeBtn.addEventListener("click", async () => {
@@ -170,6 +362,15 @@ analyzeBtn.addEventListener("click", async () => {
   }
 
   errorBox.classList.add("hidden");
+  if (warningBox) warningBox.classList.add("hidden");
+
+  // ① 言語チェック（不一致の場合は警告を出して分析しない）
+  const langError = validateLanguageInput(text, currentMode);
+  if (langError) {
+    showError(langError);
+    return;
+  }
+
   enResult.classList.add("hidden");
   jaResult.classList.add("hidden");
   loadingBox.classList.remove("hidden");
@@ -178,6 +379,9 @@ analyzeBtn.addEventListener("click", async () => {
   const endpoint = currentMode === "english" ? "/analyze/english" : "/analyze/japanese";
 
   try {
+    // 英語モードの場合はスペルチェックとAPI解析を並行実行
+    const spellPromise = currentMode === "english" ? checkEnglishSpelling(text) : Promise.resolve([]);
+
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
       method: "POST",
       headers: {
@@ -198,6 +402,11 @@ analyzeBtn.addEventListener("click", async () => {
     }
 
     const data = await response.json();
+    const spellWarnings = await spellPromise;
+
+    if (spellWarnings.length > 0) {
+      showWarning(`スペルミスの可能性がある単語が含まれています: ${spellWarnings.join(" / ")}`);
+    }
 
     // 通信成功時はステータスをオンラインに更新
     serverStatus.className = "status-badge online";
@@ -220,13 +429,162 @@ analyzeBtn.addEventListener("click", async () => {
 function hasAdnominalModifierSubChunk(chunk) {
   if (!Array.isArray(chunk.sub_chunks) || chunk.sub_chunks.length < 2) return false;
   const hasModSub = chunk.sub_chunks.some(
-    (s) => s.role === "M" && (Array.isArray(s.sub_chunks) || (s.clause_type && /関係詞|接触節|分詞|同格|修飾/.test(s.clause_type)))
+    (s) => s.role === "M" && s.clause_type && /関係詞|接触節|分詞|同格|修飾/.test(s.clause_type)
   );
   const hasNonModSub = chunk.sub_chunks.some((s) => s.role !== "M");
   return hasModSub && hasNonModSub;
 }
 
-// 1つのインライン要素（先行詞や節内のSVOCMチップ）を生成するヘルパー
+// ⑤ 関係詞の判定および「形式主語・真主語・形式目的語・真目的語」の()付きラベル付与を行う関数
+const RELATIVE_WORD_REGEX = /^(who|whom|whose|which|that|where|when|why|what|whatever|whoever|whomever|whichever|wherever|whenever|however)$/i;
+const PREP_RELATIVE_REGEX = /^(in|on|at|to|for|from|with|by|of|about|through|under|over|between|among|into|onto|upon|within|without|during|after|before|against|toward|towards)\s+(which|whom|whose)$/i;
+const FREE_REL_REGEX = /^(what|whatever|whoever|whomever|whichever|wherever|whenever|however)$/i;
+
+function isRelativeChunkText(text, isInsideRelClause, isQuestionSentence) {
+  const clean = String(text || "").trim();
+  if (!clean) return false;
+  if (PREP_RELATIVE_REGEX.test(clean)) return true;
+  if (isInsideRelClause && RELATIVE_WORD_REGEX.test(clean)) return true;
+  if (!isQuestionSentence && FREE_REL_REGEX.test(clean)) return true;
+  return false;
+}
+
+function annotateSpecialRolesAndRelatives(chunks, tokens, fullText = "") {
+  if (!Array.isArray(chunks)) return;
+  const isQuestion = String(fullText || "").trim().endsWith("?");
+  const relTokenIds = new Set();
+  const specialTokenLabels = {};
+
+  function processChunkList(chunkList, parentClauseType = "") {
+    if (!Array.isArray(chunkList) || chunkList.length === 0) return;
+
+    // 1. 形式主語 (It) と 真主語 の検出
+    const sChunks = chunkList.filter((c) => c.role === "S");
+    if (sChunks.length >= 2 && String(sChunks[0].text || "").trim().toLowerCase() === "it") {
+      sChunks[0].displayRoleLabel = "S (形式主語)";
+      sChunks[0].clause_type = "形式主語";
+      for (let idx = sChunks[0].start; idx <= sChunks[0].end; idx++) {
+        specialTokenLabels[idx] = "S (形式主語)";
+      }
+      for (let i = 1; i < sChunks.length; i++) {
+        sChunks[i].displayRoleLabel = "S (真主語)";
+        sChunks[i].clause_type = "真主語";
+        for (let idx = sChunks[i].start; idx <= sChunks[i].end; idx++) {
+          specialTokenLabels[idx] = "S (真主語)";
+        }
+      }
+    }
+
+    // 2. 形式目的語 (it) と 真目的語 の検出
+    const oChunks = chunkList.filter((c) => c.role === "O");
+    const hasC = chunkList.some((c) => c.role === "C");
+    if (
+      oChunks.length >= 2 &&
+      String(oChunks[0].text || "").trim().toLowerCase() === "it" &&
+      (hasC || oChunks[1].clause_type || Array.isArray(oChunks[1].sub_chunks))
+    ) {
+      oChunks[0].displayRoleLabel = "O (形式目的語)";
+      oChunks[0].clause_type = "形式目的語";
+      for (let idx = oChunks[0].start; idx <= oChunks[0].end; idx++) {
+        specialTokenLabels[idx] = "O (形式目的語)";
+      }
+      for (let i = 1; i < oChunks.length; i++) {
+        oChunks[i].displayRoleLabel = "O (真目的語)";
+        oChunks[i].clause_type = "真目的語";
+        for (let idx = oChunks[i].start; idx <= oChunks[i].end; idx++) {
+          specialTokenLabels[idx] = "O (真目的語)";
+        }
+      }
+    }
+
+    // 既存の clause_type に「真主語」「真目的語」が含まれている場合の統一
+    chunkList.forEach((c) => {
+      if (c.clause_type && c.clause_type.includes("真主語")) {
+        c.displayRoleLabel = "S (真主語)";
+        c.clause_type = "真主語";
+      } else if (c.clause_type && c.clause_type.includes("真目的語")) {
+        c.displayRoleLabel = "O (真目的語)";
+        c.clause_type = "真目的語";
+      }
+    });
+
+    // 3. 関係詞の検出（関係詞節・非制限関係詞節・複合関係詞節の先頭関係詞）
+    const isRelContext = /関係詞/.test(parentClauseType || "");
+    chunkList.forEach((c, idx) => {
+      if (idx <= 1 && isRelativeChunkText(c.text, isRelContext, isQuestion && c.start === 0)) {
+        c.role = "関係詞";
+        c.displayRoleLabel = "関係詞";
+        delete c.clause_type;
+        if (typeof c.start === "number" && typeof c.end === "number") {
+          for (let ti = c.start; ti <= c.end; ti++) {
+            relTokenIds.add(ti);
+          }
+        }
+      }
+
+      if (Array.isArray(c.sub_chunks) && c.sub_chunks.length > 0) {
+        processChunkList(c.sub_chunks, c.clause_type || "");
+      }
+    });
+  }
+
+  processChunkList(chunks, "");
+
+  // トークン一覧データ側にも関係詞・形式主語/真主語/形式目的語/真目的語を反映
+  if (Array.isArray(tokens)) {
+    tokens.forEach((t) => {
+      if (relTokenIds.has(t.id)) {
+        t.svocm = "関係詞";
+      } else if (specialTokenLabels[t.id]) {
+        t.svocm = specialTokenLabels[t.id];
+      }
+    });
+  }
+}
+
+// 深さレベル(0:最内 〜 3:最外)を 0〜3 のグレーインデックスに変換するヘルパー
+function clampGrayLevel(level) {
+  return Math.min(Math.max(Math.round(level), 0), 3);
+}
+
+// ④ 節（チャンクの塊）ごとのグレーレベルを計算するヘルパー（最内の節が 0、外側の節に行くにつれて +1）
+function getChunkGrayLevel(chunk) {
+  if (!chunk || !Array.isArray(chunk.sub_chunks) || chunk.sub_chunks.length === 0) {
+    return 0;
+  }
+  if (hasAdnominalModifierSubChunk(chunk)) {
+    let maxModLevel = 0;
+    chunk.sub_chunks.forEach((sub) => {
+      if (Array.isArray(sub.sub_chunks) && sub.sub_chunks.length > 0) {
+        const lv = getChunkGrayLevel(sub);
+        if (lv > maxModLevel) maxModLevel = lv;
+      }
+    });
+    return clampGrayLevel(maxModLevel + 1);
+  }
+  let maxRequiredLevel = 0;
+  chunk.sub_chunks.forEach((sub) => {
+    if (Array.isArray(sub.sub_chunks) && sub.sub_chunks.length > 0) {
+      const subLv = getChunkGrayLevel(sub);
+      const reqLv = hasAdnominalModifierSubChunk(sub) ? subLv : subLv + 1;
+      if (reqLv > maxRequiredLevel) maxRequiredLevel = reqLv;
+    }
+  });
+  return clampGrayLevel(maxRequiredLevel);
+}
+
+// チャンクの表示用ロール文字列を取得するヘルパー
+function getChunkDisplayRoleText(chunk, includeClauseType = true) {
+  if (chunk.displayRoleLabel) {
+    return chunk.displayRoleLabel;
+  }
+  if (includeClauseType && chunk.clause_type) {
+    return `${chunk.role} (${chunk.clause_type})`;
+  }
+  return `${chunk.role}`;
+}
+
+// 1つのインライン要素（先行詞や節内のチャンクチップ）を生成するヘルパー
 function createInlineChunkChip(text, roleLabel, colorClass) {
   const chip = document.createElement("div");
   chip.className = `inline-chunk-item ${colorClass}`;
@@ -237,9 +595,10 @@ function createInlineChunkChip(text, roleLabel, colorClass) {
   return chip;
 }
 
-// 修飾節（関係詞節・接触節・分詞修飾・従属節）の内部要素を横並び・グレースケールで展開するヘルパー
-function appendFlattenedModifierItems(container, subChunkList, forceGrayScale, mShadeLevel) {
-  let nestedModCounter = mShadeLevel + 1;
+// 修飾節・従属節の内部要素を、同じ節内の要素は同じグレー（外側がグレーA、内側の入れ子節がグレーB）で統一して展開するヘルパー
+function appendFlattenedModifierItems(container, subChunkList, forceGrayScale, currentGrayLevel = 0) {
+  const shadeClassForCurrent = `m-shade-${clampGrayLevel(currentGrayLevel)}`;
+
   subChunkList.forEach((item, idx) => {
     if (idx > 0) {
       const sep = document.createElement("span");
@@ -249,35 +608,67 @@ function appendFlattenedModifierItems(container, subChunkList, forceGrayScale, m
     }
 
     const safeRole = String(item.role).replace("+", "");
+
     if (Array.isArray(item.sub_chunks) && item.sub_chunks.length > 0) {
-      // 連鎖関係代名詞の挿入節やさらなる入れ子節がある場合、濃淡を変えたグループ枠で囲む
-      const groupWrap = document.createElement("div");
-      const shadeIdx = nestedModCounter % 3;
-      nestedModCounter++;
-      groupWrap.className = `mod-clause-group m-shade-${shadeIdx}`;
-      appendFlattenedModifierItems(groupWrap, item.sub_chunks, true, shadeIdx);
-      container.appendChild(groupWrap);
+      if (hasAdnominalModifierSubChunk(item)) {
+        // 節内の要素が「先行詞 + 関係詞節」を持つ場合：先行詞はこの節と同じグレー(currentGrayLevel)、関係詞節は1段薄い内側のグレーで統一
+        let hasAppendedSub = false;
+        item.sub_chunks.forEach((sub) => {
+          if (hasAppendedSub) {
+            const subSep = document.createElement("span");
+            subSep.className = "sub-chunk-sep";
+            subSep.textContent = "/";
+            container.appendChild(subSep);
+          }
+          if (sub.role !== "M" && sub.role !== "関係詞") {
+            const antColor = forceGrayScale ? shadeClassForCurrent : `role-${safeRole}`;
+            const antLabel = `${item.role} (先行詞)`;
+            container.appendChild(createInlineChunkChip(sub.text, antLabel, antColor));
+            hasAppendedSub = true;
+          } else if (Array.isArray(sub.sub_chunks) && sub.sub_chunks.length > 0) {
+            const subLv = getChunkGrayLevel(sub);
+            const groupWrap = document.createElement("div");
+            groupWrap.className = `mod-clause-group m-shade-${subLv}`;
+            appendFlattenedModifierItems(groupWrap, sub.sub_chunks, true, subLv);
+            container.appendChild(groupWrap);
+            hasAppendedSub = true;
+          } else {
+            container.appendChild(createInlineChunkChip(sub.text, getChunkDisplayRoleText(sub, true), shadeClassForCurrent));
+            hasAppendedSub = true;
+          }
+        });
+      } else {
+        // 内側の入れ子節（【that S2 V2】など）は、その節固有のグレー(subLv)の枠で囲み、内部要素もすべて同じ subLv で統一
+        const subLv = getChunkGrayLevel(item);
+        const groupWrap = document.createElement("div");
+        groupWrap.className = `mod-clause-group m-shade-${subLv}`;
+        appendFlattenedModifierItems(groupWrap, item.sub_chunks, true, subLv);
+        container.appendChild(groupWrap);
+      }
     } else {
-      const roleLabel = item.clause_type ? `${item.role} (${item.clause_type})` : item.role;
-      const colorClass = forceGrayScale ? `gray-role-${safeRole}` : `role-${safeRole}`;
+      const roleLabel = getChunkDisplayRoleText(item, true);
+      // 同じ節に直接属する要素（that, S1, V1 など）はすべて親節と同じグレー(currentGrayLevel)で統一
+      const colorClass = forceGrayScale ? shadeClassForCurrent : `role-${safeRole}`;
       container.appendChild(createInlineChunkChip(item.text, roleLabel, colorClass));
     }
   });
 }
 
-// チャンク要素（展開ボタン付き・先行詞ラベル対応・修飾節内SVOCMグレー色分け・横連結対応）を生成する関数
-function createChunkElement(chunk, mShadeLevel = 0) {
+// チャンク要素（展開ボタン付き・節単位のグレー統一・内から外に行くにつれて濃いグレー）を生成する関数
+function createChunkElement(chunk) {
   const div = document.createElement("div");
   const safeRole = String(chunk.role).replace("+", "");
-  const isMod = safeRole === "M";
-  const shadeClass = isMod ? ` m-shade-${mShadeLevel % 3}` : "";
+  const isMod = safeRole === "M" || safeRole === "関係詞";
+  const chunkGrayLevel = getChunkGrayLevel(chunk);
+  const outerGrayLevel = Array.isArray(chunk.sub_chunks) && chunk.sub_chunks.length > 0
+    ? chunkGrayLevel
+    : 2;
+  const shadeClass = isMod ? ` m-shade-${outerGrayLevel}` : "";
 
   if (Array.isArray(chunk.sub_chunks) && chunk.sub_chunks.length > 0) {
     div.className = `chunk-box chunk-nested role-${safeRole}${shadeClass}`;
     const isAdnominal = hasAdnominalModifierSubChunk(chunk);
-    const headerRoleLabel = (!isAdnominal && chunk.clause_type)
-      ? `${chunk.role} (${chunk.clause_type})`
-      : `${chunk.role}`;
+    const headerRoleLabel = getChunkDisplayRoleText(chunk, !isAdnominal);
 
     const headerDiv = document.createElement("div");
     headerDiv.className = "chunk-nested-header";
@@ -294,8 +685,6 @@ function createChunkElement(chunk, mShadeLevel = 0) {
 
     if (isAdnominal) {
       // 先行詞 + 関係詞節/接触節/分詞句 の構造
-      const modClauseCount = chunk.sub_chunks.filter((s) => s.role === "M" && Array.isArray(s.sub_chunks)).length;
-      let modGroupCounter = mShadeLevel;
       let hasAppendedAny = false;
 
       chunk.sub_chunks.forEach((sub) => {
@@ -306,34 +695,28 @@ function createChunkElement(chunk, mShadeLevel = 0) {
           subContainer.appendChild(sep);
         }
 
-        if (sub.role !== "M") {
-          // 先行詞：色は元のSVOCM（Sなら青など）のまま、ラベルは「先行詞」と表示
-          const antColorClass = `role-${safeRole}`;
+        if (sub.role !== "M" && sub.role !== "関係詞") {
+          // 先行詞：Mチャンクなら外側のグレー(chunkGrayLevel)、S/O/Cなら元の骨格カラー
+          const antColorClass = isMod ? `m-shade-${chunkGrayLevel}` : `role-${safeRole}`;
           subContainer.appendChild(createInlineChunkChip(sub.text, "先行詞", antColorClass));
           hasAppendedAny = true;
         } else if (Array.isArray(sub.sub_chunks) && sub.sub_chunks.length > 0) {
-          // 関係詞節・接触節・分詞修飾の内部：SVOCMに応じてグレーで色分けし横に連結
-          const curShade = modGroupCounter % 3;
-          modGroupCounter++;
-          if (modClauseCount > 1) {
-            // 1つの先行詞に複数の関係詞節が修飾している場合は、まとまりごとにグレー濃淡枠で囲む
-            const groupWrap = document.createElement("div");
-            groupWrap.className = `mod-clause-group m-shade-${curShade}`;
-            appendFlattenedModifierItems(groupWrap, sub.sub_chunks, true, curShade);
-            subContainer.appendChild(groupWrap);
-          } else {
-            appendFlattenedModifierItems(subContainer, sub.sub_chunks, true, curShade);
-          }
+          // 関係詞節・接触節・分詞修飾のまとまり枠（内部要素もすべて subLv で統一）
+          const subLv = getChunkGrayLevel(sub);
+          const groupWrap = document.createElement("div");
+          groupWrap.className = `mod-clause-group m-shade-${subLv}`;
+          appendFlattenedModifierItems(groupWrap, sub.sub_chunks, true, subLv);
+          subContainer.appendChild(groupWrap);
           hasAppendedAny = true;
         } else {
-          subContainer.appendChild(createInlineChunkChip(sub.text, sub.role, "gray-role-M"));
+          subContainer.appendChild(createInlineChunkChip(sub.text, getChunkDisplayRoleText(sub, true), `m-shade-${chunkGrayLevel}`));
           hasAppendedAny = true;
         }
       });
     } else {
-      // 名詞節・副詞節・分詞構文・付帯状況などの内部展開（M節または修飾節の内部はすべてグレー色分け）
+      // 名詞節・副詞節・分詞構文・付帯状況などの内部展開（この節の要素はすべて chunkGrayLevel で統一）
       const useGrayForInner = isMod || Boolean(chunk.clause_type);
-      appendFlattenedModifierItems(subContainer, chunk.sub_chunks, useGrayForInner, mShadeLevel);
+      appendFlattenedModifierItems(subContainer, chunk.sub_chunks, useGrayForInner, chunkGrayLevel);
     }
 
     const toggleBtn = headerDiv.querySelector(".chunk-toggle-btn");
@@ -347,7 +730,7 @@ function createChunkElement(chunk, mShadeLevel = 0) {
     div.appendChild(subContainer);
   } else {
     div.className = `chunk-box role-${safeRole}${shadeClass}`;
-    const typeLabel = chunk.clause_type ? `${chunk.role} (${chunk.clause_type})` : `${chunk.role}`;
+    const typeLabel = getChunkDisplayRoleText(chunk, true);
     div.innerHTML = `
       <span class="chunk-text">${escapeHtml(chunk.text)}</span>
       <span class="chunk-role">${escapeHtml(typeLabel)}</span>
@@ -360,19 +743,15 @@ function createChunkElement(chunk, mShadeLevel = 0) {
 function renderEnglishResult(data) {
   document.getElementById("en-pattern").textContent = data.pattern;
 
-  // チャンクの描画（1つずつ縦並び・連続するMのグレー濃淡変化に対応）
+  // ⑤ 形式主語・真主語・形式目的語・真目的語の()付き表記および関係詞表記の適用
+  annotateSpecialRolesAndRelatives(data.chunks, data.tokens, data.text);
+
+  // チャンクの描画（入れ子の内から外に行くにつれて濃いグレー）
   const chunksContainer = document.getElementById("en-chunks");
   chunksContainer.innerHTML = "";
-  let topModCounter = 0;
   data.chunks.forEach((chunk) => {
-    const shade = chunk.role === "M" ? topModCounter++ : 0;
-    chunksContainer.appendChild(createChunkElement(chunk, shade));
+    chunksContainer.appendChild(createChunkElement(chunk));
   });
-
-  // 統語ツリー(1行配置・品詞・SVOCM囲み枠・逆V字連結ツリーSVG)の描画
-  const treeContainer = document.getElementById("en-tree");
-  treeContainer.innerHTML = buildHierarchicalTreeSvg(data.tokens, data.chunks);
-  applyTreeZoom(1.0);
 
   // 文法網羅チェッカー（13項目）の描画
   const grammarBody = document.getElementById("en-grammar-check-body");
@@ -395,7 +774,7 @@ function renderEnglishResult(data) {
     });
   }
 
-  // トークン一覧テーブルの描画（品詞列は括弧なしの品詞名のみ表示）
+  // トークン一覧テーブルの描画
   const tbody = document.getElementById("en-tokens-body");
   tbody.innerHTML = "";
   data.tokens.forEach((t) => {
@@ -411,7 +790,12 @@ function renderEnglishResult(data) {
     tbody.appendChild(tr);
   });
 
+  // ③ 結果セクションを表示状態にしてから統語ツリーを描画し、全体が範囲にちょうど収まる倍率を初期適用する
   enResult.classList.remove("hidden");
+
+  const treeContainer = document.getElementById("en-tree");
+  treeContainer.innerHTML = buildHierarchicalTreeSvg(data.tokens, data.chunks);
+  fitTreeToContainer();
 }
 
 // 品詞の日本語表記マップ
@@ -465,58 +849,55 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
     V: { fill: "#fef2f2", stroke: "#dc2626", badge: "#dc2626", text: "#991b1b" },
     O: { fill: "#ecfdf5", stroke: "#059669", badge: "#059669", text: "#065f46" },
     C: { fill: "#fffbeb", stroke: "#d97706", badge: "#d97706", text: "#92400e" },
-    M: { fill: "#f8fafc", stroke: "#94a3b8", badge: "#64748b", text: "#334155" },
+    強調部分: { fill: "#f5f3ff", stroke: "#7c3aed", badge: "#7c3aed", text: "#5b21b6" },
+    M: { fill: "#e2e8f0", stroke: "#64748b", badge: "#475569", text: "#0f172a" },
+    関係詞: { fill: "#f8fafc", stroke: "#cbd5e1", badge: "#94a3b8", text: "#334155" },
     Conj: { fill: "#f8fafc", stroke: "#cbd5e1", badge: "#94a3b8", text: "#475569" },
     Other: { fill: "#f8fafc", stroke: "#cbd5e1", badge: "#64748b", text: "#334155" }
   };
 
-  // 修飾節(関係詞節・分詞修飾等)の内部にあるSVOCM要素用のグレースケールパレット
-  const grayRoleStyles = {
-    S: { fill: "#e2e8f0", stroke: "#475569", badge: "#334155", text: "#0f172a" },
-    V: { fill: "#cbd5e1", stroke: "#1e293b", badge: "#0f172a", text: "#0f172a" },
-    O: { fill: "#e5e7eb", stroke: "#4b5563", badge: "#4b5563", text: "#111827" },
-    C: { fill: "#e7e5e4", stroke: "#57534e", badge: "#57534e", text: "#1c1917" },
-    M: { fill: "#f8fafc", stroke: "#94a3b8", badge: "#64748b", text: "#334155" },
-    Conj: { fill: "#f8fafc", stroke: "#cbd5e1", badge: "#94a3b8", text: "#475569" }
-  };
-
-  // まとまりごとにグレーの濃さを変える3段階パレット
+  // ④ チャンク単位・入れ子構造の内(0:薄)から外(3:濃)に行くにつれて濃くなる4段階グレーパレット
   const mShadeStyles = [
-    { fill: "#f8fafc", stroke: "#94a3b8", badge: "#64748b", text: "#334155" },
-    { fill: "#f1f5f9", stroke: "#64748b", badge: "#475569", text: "#1e293b" },
-    { fill: "#e2e8f0", stroke: "#475569", badge: "#334155", text: "#0f172a" }
+    { fill: "#f8fafc", stroke: "#cbd5e1", badge: "#94a3b8", text: "#334155" }, // Level 0: 最内（最も薄い）
+    { fill: "#f1f5f9", stroke: "#94a3b8", badge: "#64748b", text: "#1e293b" }, // Level 1: 内側中間
+    { fill: "#e2e8f0", stroke: "#64748b", badge: "#475569", text: "#0f172a" }, // Level 2: 外側中間
+    { fill: "#cbd5e1", stroke: "#475569", badge: "#334155", text: "#0f172a" }  // Level 3: 最外（最も濃い）
   ];
 
-  function getRoleVisualStyle(role, mShade = 0, inModClause = false) {
-    if (inModClause) {
-      if (role === "M") {
-        return mShadeStyles[mShade % mShadeStyles.length];
+  function getRoleVisualStyle(role, grayLevel = 0, inModClause = false) {
+    const clamped = clampGrayLevel(grayLevel);
+    if (inModClause || role === "M" || role === "関係詞") {
+      if (role === "強調部分") {
+        return roleStyle["強調部分"];
       }
-      return grayRoleStyles[role] || mShadeStyles[mShade % mShadeStyles.length];
-    }
-    if (role === "M") {
-      return mShadeStyles[mShade % mShadeStyles.length];
+      return mShadeStyles[clamped];
     }
     return roleStyle[role] || roleStyle.Other;
   }
 
   // 1. 入れ子チャンク(sub_chunks)を再帰的に展開して葉グループ(groups)と階層構造を構築
+  // 同じ節に属する要素はすべて同じグレーレベルで統一し、内側の入れ子節ほど薄く(0)、外側の節ほど濃く(+1)する
   const groups = [];
   const clauseBrackets = [];
 
-  function registerChunkHierarchy(ch, mShadeLevel = 0, inModClause = false, isAntecedent = false) {
-    const isMod = ch.role === "M";
+  function registerChunkHierarchy(ch, inModClause = false, isAntecedent = false, currentGrayLevel = 0, isTopLevel = false) {
+    const isMod = ch.role === "M" || ch.role === "関係詞";
     const nextInMod = inModClause || isMod;
 
     if (Array.isArray(ch.sub_chunks) && ch.sub_chunks.length > 0) {
       const isAdnominal = hasAdnominalModifierSubChunk(ch);
-      let childModCounter = isMod ? mShadeLevel + 1 : mShadeLevel;
+      const myGrayLevel = isAdnominal && !isTopLevel ? currentGrayLevel : getChunkGrayLevel(ch);
+      const innerForceGray = nextInMod || Boolean(ch.clause_type);
 
       const childItems = ch.sub_chunks.map((sub) => {
-        const subIsMod = sub.role === "M";
+        const subIsMod = sub.role === "M" || sub.role === "関係詞";
         const subIsAnt = isAdnominal && !subIsMod;
-        const subShade = subIsMod ? childModCounter++ : mShadeLevel;
-        return registerChunkHierarchy(sub, subShade, nextInMod || subIsMod, subIsAnt);
+        const hasGrandChildren = Array.isArray(sub.sub_chunks) && sub.sub_chunks.length > 0;
+        const childGrayLevel = hasGrandChildren
+          ? (hasAdnominalModifierSubChunk(sub) ? myGrayLevel : getChunkGrayLevel(sub))
+          : myGrayLevel;
+        const childInMod = subIsAnt ? nextInMod : (innerForceGray || subIsMod);
+        return registerChunkHierarchy(sub, childInMod, subIsAnt, childGrayLevel, false);
       }).filter(Boolean);
       if (childItems.length === 0) return null;
 
@@ -527,14 +908,16 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
         if (ci.bracketDepth > maxChildDepth) maxChildDepth = ci.bracketDepth;
       });
 
-      const shouldDrawBracket = Boolean(ch.clause_type) || maxChildDepth === 0;
+      const shouldDrawBracket = Boolean(ch.clause_type) || Boolean(ch.displayRoleLabel) || maxChildDepth === 0;
       let myDepth = maxChildDepth;
       if (shouldDrawBracket) {
         myDepth = maxChildDepth + 1;
-        const bLabel = ch.clause_type ? `${ch.role} (${ch.clause_type})` : `${ch.role} (節)`;
+        const bLabel = ch.displayRoleLabel
+          ? ch.displayRoleLabel
+          : (ch.clause_type ? `${ch.role} (${ch.clause_type})` : `${ch.role} (節)`);
         clauseBrackets.push({
           role: ch.role,
-          mShade: mShadeLevel,
+          grayLevel: myGrayLevel,
           inModClause: nextInMod,
           label: bLabel,
           subGroupIndices: allLeafIndices,
@@ -545,7 +928,8 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
       return {
         isContainer: true,
         role: ch.role,
-        mShade: mShadeLevel,
+        displayRoleLabel: ch.displayRoleLabel || null,
+        grayLevel: myGrayLevel,
         inModClause: nextInMod,
         clauseType: ch.clause_type || null,
         children: childItems,
@@ -556,18 +940,24 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
       const matched = validTokens.filter((t) => t.id >= ch.start && t.id <= ch.end);
       if (matched.length === 0) return null;
       const gIdx = groups.length;
+      const leafGrayLevel = isTopLevel && isMod ? 2 : currentGrayLevel;
+      const dispRole = isAntecedent
+        ? (isTopLevel ? "先行詞" : `${ch.role} (先行詞)`)
+        : (ch.displayRoleLabel || ch.role);
+
       groups.push({
         role: ch.role,
-        displayRole: isAntecedent ? "先行詞" : ch.role,
-        mShade: mShadeLevel,
-        inModClause: isAntecedent ? false : inModClause,
+        displayRole: dispRole,
+        grayLevel: leafGrayLevel,
+        inModClause: nextInMod,
         tokens: matched
       });
       return {
         isContainer: false,
         role: ch.role,
-        mShade: mShadeLevel,
-        inModClause: isAntecedent ? false : inModClause,
+        displayRoleLabel: dispRole,
+        grayLevel: leafGrayLevel,
+        inModClause: nextInMod,
         groupIdx: gIdx,
         leafIndices: [gIdx],
         bracketDepth: 0
@@ -577,10 +967,9 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
 
   let hierarchyRoots = [];
   if (Array.isArray(chunks) && chunks.length > 0) {
-    let rootModCounter = 0;
     hierarchyRoots = chunks.map((ch) => {
-      const shade = ch.role === "M" ? rootModCounter++ : 0;
-      return registerChunkHierarchy(ch, shade, ch.role === "M", false);
+      const topLv = getChunkGrayLevel(ch);
+      return registerChunkHierarchy(ch, ch.role === "M" || ch.role === "関係詞", false, topLv, true);
     }).filter(Boolean);
   }
   if (groups.length === 0) {
@@ -588,14 +977,14 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
       groups.push({
         role: t.svocm || "Other",
         displayRole: t.svocm || "Other",
-        mShade: 0,
+        grayLevel: 0,
         inModClause: false,
         tokens: [t]
       });
       hierarchyRoots.push({
         isContainer: false,
         role: t.svocm || "Other",
-        mShade: 0,
+        grayLevel: 0,
         inModClause: false,
         groupIdx: idx,
         leafIndices: [idx],
@@ -634,29 +1023,29 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
   const mergeEdges = [];
   const mergeNodes = [];
 
-  function createLeafNode(token, inModClause = false, mShade = 0) {
+  function createLeafNode(token, inModClause = false, grayLevel = 0) {
     return {
       x: tokenCenterX[token.id],
       level: 0,
       label: token.text,
       role: token.svocm,
       inModClause,
-      mShade
+      grayLevel
     };
   }
 
-  function mergeTwoNodes(leftNode, rightNode, label, role, inModClause = false, mShade = 0) {
+  function mergeTwoNodes(leftNode, rightNode, label, role, inModClause = false, grayLevel = 0) {
     const level = Math.max(leftNode.level, rightNode.level) + 1;
     const x = (leftNode.x + rightNode.x) / 2;
     const isModNode = inModClause || (leftNode.inModClause && rightNode.inModClause);
-    const shadeVal = mShade || leftNode.mShade || rightNode.mShade || 0;
+    const gLevel = Math.max(grayLevel || 0, leftNode.grayLevel || 0, rightNode.grayLevel || 0);
     const parent = {
       x,
       level,
       label,
       role: role || "Phrase",
       inModClause: isModNode,
-      mShade: shadeVal
+      grayLevel: gLevel
     };
     mergeEdges.push({ parent, left: leftNode, right: rightNode });
     mergeNodes.push(parent);
@@ -664,9 +1053,9 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
   }
 
   // spaCyの親子関係(head_id)を直接たどってチャンク内部の逆V字結合を組み立てる
-  function buildIntraGroupTree(tokSlice, role, inModClause = false, mShade = 0) {
+  function buildIntraGroupTree(tokSlice, displayRole, role, inModClause = false, grayLevel = 0) {
     if (tokSlice.length === 1) {
-      return createLeafNode(tokSlice[0], inModClause, mShade);
+      return createLeafNode(tokSlice[0], inModClause, grayLevel);
     }
 
     const idSet = new Set(tokSlice.map((t) => t.id));
@@ -689,18 +1078,18 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
       const lefts = ch.filter((c) => c.id < headTok.id).sort((a, b) => a.id - b.id);
       const rights = ch.filter((c) => c.id > headTok.id).sort((a, b) => a.id - b.id);
 
-      let cur = createLeafNode(headTok, inModClause, mShade);
+      let cur = createLeafNode(headTok, inModClause, grayLevel);
 
       for (let i = lefts.length - 1; i >= 0; i--) {
         const leftSub = buildDepSubtree(lefts[i], false);
         const isFinalMerge = isTopLevel && i === 0 && rights.length === 0 && localRoots.length === 1;
-        cur = mergeTwoNodes(leftSub, cur, isFinalMerge ? role : "句", isFinalMerge ? role : "Phrase", inModClause, mShade);
+        cur = mergeTwoNodes(leftSub, cur, isFinalMerge ? displayRole : "句", isFinalMerge ? role : "Phrase", inModClause, grayLevel);
       }
 
       for (let i = 0; i < rights.length; i++) {
         const rightSub = buildDepSubtree(rights[i], false);
         const isFinalMerge = isTopLevel && i === rights.length - 1 && localRoots.length === 1;
-        cur = mergeTwoNodes(cur, rightSub, isFinalMerge ? role : "句", isFinalMerge ? role : "Phrase", inModClause, mShade);
+        cur = mergeTwoNodes(cur, rightSub, isFinalMerge ? displayRole : "句", isFinalMerge ? role : "Phrase", inModClause, grayLevel);
       }
 
       return cur;
@@ -710,33 +1099,35 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
     let combined = rootNodes[0];
     for (let i = 1; i < rootNodes.length; i++) {
       const isFinal = (i === rootNodes.length - 1);
-      combined = mergeTwoNodes(combined, rootNodes[i], isFinal ? role : "句", isFinal ? role : "Phrase", inModClause, mShade);
+      combined = mergeTwoNodes(combined, rootNodes[i], isFinal ? displayRole : "句", isFinal ? role : "Phrase", inModClause, grayLevel);
     }
-    combined.label = role;
+    combined.label = displayRole;
     combined.role = role;
     combined.inModClause = inModClause;
-    combined.mShade = mShade;
+    combined.grayLevel = grayLevel;
     return combined;
   }
 
   // 各葉チャンクの頂点ノードを作成
   const leafChunkNodes = groups.map((grp) => {
-    const node = buildIntraGroupTree(grp.tokens, grp.displayRole || grp.role, grp.inModClause, grp.mShade);
+    const node = buildIntraGroupTree(grp.tokens, grp.displayRole || grp.role, grp.role, grp.inModClause, grp.grayLevel);
     node.chunkRole = grp.role;
+    node.displayRoleLabel = grp.displayRole || grp.role;
     node.tokens = grp.tokens;
     node.inModClause = grp.inModClause;
-    node.mShade = grp.mShade;
+    node.grayLevel = grp.grayLevel;
     return node;
   });
 
   // 節内部（または主節）のチャンクノード列を結合して1つの節/文ノードにするヘルパー
-  function buildClauseTreeFromNodes(nodesSlice, isTopSentence, inModClause = false, mShade = 0) {
+  function buildClauseTreeFromNodes(nodesSlice, isTopSentence, inModClause = false, grayLevel = 0) {
     if (nodesSlice.length === 1) return nodesSlice[0];
 
-    if (nodesSlice[0].chunkRole === "Conj" && nodesSlice.length > 1) {
-      const restTree = buildClauseTreeFromNodes(nodesSlice.slice(1), false, inModClause, mShade);
-      const topLbl = isTopSentence ? "文 (Sentence)" : "Conj + 節";
-      return mergeTwoNodes(nodesSlice[0], restTree, topLbl, isTopSentence ? "Sentence" : "VP", inModClause, mShade);
+    if ((nodesSlice[0].chunkRole === "Conj" || nodesSlice[0].chunkRole === "関係詞") && nodesSlice.length > 1) {
+      const restTree = buildClauseTreeFromNodes(nodesSlice.slice(1), false, inModClause, grayLevel);
+      const leadLabel = nodesSlice[0].chunkRole === "関係詞" ? "関係詞 + 節" : "Conj + 節";
+      const topLbl = isTopSentence ? "文 (Sentence)" : leadLabel;
+      return mergeTwoNodes(nodesSlice[0], restTree, topLbl, isTopSentence ? "Sentence" : "VP", inModClause, grayLevel);
     }
 
     const conjIdx = nodesSlice.findIndex((n, idx) => idx > 0 && n.chunkRole === "Conj");
@@ -746,12 +1137,12 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
       const rightHasOwnSubjAndVerb = rightSlice.some((n) => n.chunkRole === "S") && rightSlice.some((n) => n.chunkRole === "V");
 
       if (rightHasOwnSubjAndVerb) {
-        const clause1 = buildClauseTreeFromNodes(nodesSlice.slice(0, conjIdx), false, inModClause, mShade);
+        const clause1 = buildClauseTreeFromNodes(nodesSlice.slice(0, conjIdx), false, inModClause, grayLevel);
         const conjNode = nodesSlice[conjIdx];
-        const clause2 = buildClauseTreeFromNodes(rightSlice, false, inModClause, mShade);
-        const conjRight = mergeTwoNodes(conjNode, clause2, "Conj + 節", "VP", inModClause, mShade);
+        const clause2 = buildClauseTreeFromNodes(rightSlice, false, inModClause, grayLevel);
+        const conjRight = mergeTwoNodes(conjNode, clause2, "Conj + 節", "VP", inModClause, grayLevel);
         const topLbl = isTopSentence ? "文 (重文)" : "節 + 節";
-        return mergeTwoNodes(clause1, conjRight, topLbl, isTopSentence ? "Sentence" : "VP", inModClause, mShade);
+        return mergeTwoNodes(clause1, conjRight, topLbl, isTopSentence ? "Sentence" : "VP", inModClause, grayLevel);
       }
 
       if (!rightSlice.some((n) => n.chunkRole === "S")) {
@@ -760,10 +1151,10 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
         const conjNode = nodesSlice[conjIdx];
         const vp2Nodes = rightSlice;
 
-        const vp1 = buildClauseTreeFromNodes(vp1Nodes, false, inModClause, mShade);
-        const vp2 = buildClauseTreeFromNodes(vp2Nodes, false, inModClause, mShade);
-        const conjRight = mergeTwoNodes(conjNode, vp2, "Conj + VP", "VP", inModClause, mShade);
-        let combinedVp = mergeTwoNodes(vp1, conjRight, "VP (並列述部)", "VP", inModClause, mShade);
+        const vp1 = buildClauseTreeFromNodes(vp1Nodes, false, inModClause, grayLevel);
+        const vp2 = buildClauseTreeFromNodes(vp2Nodes, false, inModClause, grayLevel);
+        const conjRight = mergeTwoNodes(conjNode, vp2, "Conj + VP", "VP", inModClause, grayLevel);
+        let combinedVp = mergeTwoNodes(vp1, conjRight, "VP (並列述部)", "VP", inModClause, grayLevel);
 
         for (let i = prefixNodes.length - 1; i >= 0; i--) {
           const isTop = isTopSentence && i === 0;
@@ -775,7 +1166,7 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
             pLabel,
             isTop ? "Sentence" : "VP",
             inModClause,
-            mShade
+            grayLevel
           );
         }
         return combinedVp;
@@ -788,7 +1179,7 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
       for (let i = 1; i < nodesSlice.length; i++) {
         const isTop = isTopSentence && i === nodesSlice.length - 1;
         const lbl = (cur.chunkRole === "S" && nodesSlice[i].chunkRole === "C") ? "S + C" : (isTop ? "文 (Sentence)" : "句");
-        cur = mergeTwoNodes(cur, nodesSlice[i], lbl, isTop ? "Sentence" : "Phrase", inModClause, mShade);
+        cur = mergeTwoNodes(cur, nodesSlice[i], lbl, isTop ? "Sentence" : "Phrase", inModClause, grayLevel);
       }
       return cur;
     }
@@ -801,10 +1192,10 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
       for (let i = secondVIdx + 1; i < nodesSlice.length; i++) {
         const nextRole = nodesSlice[i].chunkRole;
         const lbl = (nextRole === "O" || nextRole === "C") ? "VP (動詞句)" : "VP (述部)";
-        mainVp = mergeTwoNodes(mainVp, nodesSlice[i], lbl, "VP", inModClause, mShade);
+        mainVp = mergeTwoNodes(mainVp, nodesSlice[i], lbl, "VP", inModClause, grayLevel);
       }
       for (let i = secondVIdx - 1; i > vIdx; i--) {
-        mainVp = mergeTwoNodes(nodesSlice[i], mainVp, "S + VP", "VP", inModClause, mShade);
+        mainVp = mergeTwoNodes(nodesSlice[i], mainVp, "S + VP", "VP", inModClause, grayLevel);
       }
       let invNode = mergeTwoNodes(
         nodesSlice[vIdx],
@@ -812,11 +1203,11 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
         isTopSentence && vIdx === 0 ? "文 (倒置)" : "Aux + S + VP",
         isTopSentence && vIdx === 0 ? "Sentence" : "VP",
         inModClause,
-        mShade
+        grayLevel
       );
       for (let i = vIdx - 1; i >= 0; i--) {
         const isTop = isTopSentence && i === 0;
-        invNode = mergeTwoNodes(nodesSlice[i], invNode, isTop ? "文 (倒置)" : "倒置節", isTop ? "Sentence" : "VP", inModClause, mShade);
+        invNode = mergeTwoNodes(nodesSlice[i], invNode, isTop ? "文 (倒置)" : "倒置節", isTop ? "Sentence" : "VP", inModClause, grayLevel);
       }
       return invNode;
     }
@@ -842,24 +1233,24 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
         if (nextRole === "V") {
           const prtText = nextNode.tokens ? nextNode.tokens.map((t) => t.text).join(" ") : "";
           const pvLabel = mainVerbText ? `VP (句動詞: ${mainVerbText} ... ${prtText})` : "VP (句動詞)";
-          vpNode = mergeTwoNodes(vpNode, nextNode, pvLabel, "V", inModClause, mShade);
+          vpNode = mergeTwoNodes(vpNode, nextNode, pvLabel, "V", inModClause, grayLevel);
         } else {
-          vpNode = mergeTwoNodes(vpNode, nextNode, "V + " + nextRole, "VP", inModClause, mShade);
+          vpNode = mergeTwoNodes(vpNode, nextNode, "V + " + nextRole, "VP", inModClause, grayLevel);
         }
       } else {
         let mergeLabel = "VP (述部)";
-        if (nextRole === "O" && hasSeenObjAfterV && hasSeenCompAfterV) {
-          mergeLabel = "VP + 真目的語(O)";
+        if ((nextRole === "O" && hasSeenObjAfterV && hasSeenCompAfterV) || nextNode.displayRoleLabel === "O (真目的語)") {
+          mergeLabel = "VP + O (真目的語)";
         } else if (nextRole === "O" || nextRole === "C") {
           mergeLabel = "VP (動詞句)";
-        } else if (nextRole === "S") {
-          mergeLabel = "述部 + 真主語(S)";
+        } else if (nextRole === "S" || nextNode.displayRoleLabel === "S (真主語)") {
+          mergeLabel = "述部 + S (真主語)";
         }
         if (nextRole === "O") hasSeenObjAfterV = true;
         if (nextRole === "C") hasSeenCompAfterV = true;
 
         if (isTopSentence && isLastRight) mergeLabel = "文 (Sentence)";
-        vpNode = mergeTwoNodes(vpNode, nextNode, mergeLabel, isTopSentence && isLastRight ? "Sentence" : "VP", inModClause, mShade);
+        vpNode = mergeTwoNodes(vpNode, nextNode, mergeLabel, isTopSentence && isLastRight ? "Sentence" : "VP", inModClause, grayLevel);
       }
     }
 
@@ -876,7 +1267,7 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
       } else if (lRole !== "S") {
         label = `${lRole} + 節`;
       }
-      currentRight = mergeTwoNodes(leftNodes[i], currentRight, label, isTop ? "Sentence" : "VP", inModClause, mShade);
+      currentRight = mergeTwoNodes(leftNodes[i], currentRight, label, isTop ? "Sentence" : "VP", inModClause, grayLevel);
     }
     return currentRight;
   }
@@ -891,17 +1282,20 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
     if (!item.clauseType && !childNodes.some((n) => n.chunkRole === "V")) {
       combined = childNodes[0];
       for (let i = 1; i < childNodes.length; i++) {
-        combined = mergeTwoNodes(combined, childNodes[i], item.role, item.role, false, item.mShade);
+        combined = mergeTwoNodes(combined, childNodes[i], item.role, item.role, false, item.grayLevel);
       }
     } else {
-      combined = buildClauseTreeFromNodes(childNodes, false, item.inModClause, item.mShade);
+      combined = buildClauseTreeFromNodes(childNodes, false, item.inModClause, item.grayLevel);
     }
-    const nodeLabel = item.clauseType ? `${item.role} (${item.clauseType})` : item.role;
+    const nodeLabel = item.displayRoleLabel
+      ? item.displayRoleLabel
+      : (item.clauseType ? `${item.role} (${item.clause_type || item.clauseType})` : item.role);
     combined.label = nodeLabel;
     combined.role = item.role;
     combined.chunkRole = item.role;
+    combined.displayRoleLabel = item.displayRoleLabel || nodeLabel;
     combined.inModClause = item.inModClause;
-    combined.mShade = item.mShade;
+    combined.grayLevel = item.grayLevel;
     return combined;
   }
 
@@ -954,7 +1348,7 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
     svgContent += `<line x1="${px}" y1="${py}" x2="${rx}" y2="${ry}" stroke="#475569" stroke-width="2" stroke-linecap="round" />`;
   });
 
-  // (B) 逆V字の結合点ラベル（楕円形：テキストがはみ出さず十分な余白を持つサイズに自動調整）を描画
+  // (B) 逆V字の結合点ラベル（楕円形：入れ子の内から外に行くにつれて濃いグレー）を描画
   mergeNodes.forEach((node) => {
     const nx = node.x;
     const ny = getNodeY(node);
@@ -962,8 +1356,8 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
     let st;
     if (isSentence) {
       st = { fill: "#0f172a", stroke: "#0f172a", text: "#ffffff" };
-    } else if (node.inModClause) {
-      st = getRoleVisualStyle(node.role, node.mShade || 0, true);
+    } else if (node.inModClause || node.role === "M" || node.role === "関係詞") {
+      st = getRoleVisualStyle(node.role, node.grayLevel || 0, true);
     } else {
       st = roleStyle[node.role] || { fill: "#ffffff", stroke: "#64748b", text: "#334155" };
     }
@@ -977,9 +1371,9 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
     svgContent += `<text x="${nx}" y="${ny + 4}" text-anchor="middle" font-size="11" font-weight="700" fill="${st.text}">${escapeHtml(labelText)}</text>`;
   });
 
-  // (C) SVOCMの囲み枠と下部ラベルを描画（先行詞は元の色で「先行詞」表示、関係詞節・分詞修飾内部はSVOCMグレースケール）
+  // (C) チャンクの囲み枠と下部ラベルを描画（入れ子内部はチャンク単位でグレー設定、内ほど薄く外ほど濃い）
   groups.forEach((grp) => {
-    const st = getRoleVisualStyle(grp.role, grp.mShade || 0, grp.inModClause);
+    const st = getRoleVisualStyle(grp.role, grp.grayLevel || 0, grp.inModClause);
     const x = grp.leftX - 6;
     const w = (grp.rightX - grp.leftX) + 12;
     const h = boxBottomY - boxTopY;
@@ -997,12 +1391,12 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
     }
   });
 
-  // (C2) 従属節・関係詞節・分詞構文・分詞句をまとめる下部アンダーブラケットを描画
+  // (C2) 従属節・関係詞節・分詞構文・分詞句をまとめる下部アンダーブラケットを描画（外側の節ほど濃いグレー）
   clauseBrackets.forEach((br) => {
     if (br.subGroupIndices.length === 0) return;
     const firstGrp = groups[br.subGroupIndices[0]];
     const lastGrp = groups[br.subGroupIndices[br.subGroupIndices.length - 1]];
-    const st = getRoleVisualStyle(br.role, br.mShade || 0, br.inModClause);
+    const st = getRoleVisualStyle(br.role, br.grayLevel || 0, br.inModClause);
 
     const depth = br.depth || 1;
     const x1 = firstGrp.leftX - 6;
@@ -1031,7 +1425,7 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
   return `<svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg" style="display: block; margin: 0 auto;">${svgContent}</svg>`;
 }
 
-// 6. 日本語分析結果の描画（1つずつ縦並び・Mのグレー濃淡変化に対応）
+// 6. 日本語分析結果の描画（入れ子の内から外に行くにつれて濃いグレーに対応）
 function renderJapaneseResult(data) {
   const guideContainer = document.getElementById("ja-order-guide");
   guideContainer.innerHTML = "";
@@ -1050,10 +1444,8 @@ function renderJapaneseResult(data) {
 
   const clausesContainer = document.getElementById("ja-clauses");
   clausesContainer.innerHTML = "";
-  let jaModCounter = 0;
   data.clauses.forEach((c) => {
-    const shade = c.role === "M" ? jaModCounter++ : 0;
-    clausesContainer.appendChild(createChunkElement(c, shade));
+    clausesContainer.appendChild(createChunkElement(c));
   });
 
   jaResult.classList.remove("hidden");
@@ -1062,6 +1454,12 @@ function renderJapaneseResult(data) {
 function showError(msg) {
   errorBox.textContent = msg;
   errorBox.classList.remove("hidden");
+}
+
+function showWarning(msg) {
+  if (!warningBox) return;
+  warningBox.textContent = msg;
+  warningBox.classList.remove("hidden");
 }
 
 function escapeHtml(str) {

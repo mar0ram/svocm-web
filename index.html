@@ -39,7 +39,7 @@
 
     <!-- 入力エリア -->
     <div class="input-section">
-      <textarea id="input-text" rows="3" placeholder="ここに分析したい英文を入力してください（例: Reading English books makes your vocabulary richer.）"></textarea>
+      <textarea id="input-text" rows="3" spellcheck="true" placeholder="ここに分析したい英文を入力してください（例: Reading English books makes your vocabulary richer.）"></textarea>
       <div class="action-bar">
         <span id="Wakeup-hint" class="hint-text">※スリープ復帰時は初回のみ最大50秒ほどかかります</span>
         <div class="action-buttons">
@@ -51,6 +51,9 @@
 
     <!-- エラー表示 -->
     <div id="error-box" class="error-box hidden"></div>
+
+    <!-- スペルミス等の警告表示 -->
+    <div id="warning-box" class="warning-box hidden"></div>
 
     <!-- ローディング表示 -->
     <div id="loading" class="loading-box hidden">
