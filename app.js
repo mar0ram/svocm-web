@@ -739,6 +739,234 @@ function createChunkElement(chunk) {
   return div;
 }
 
+// チャンク範囲のトークン列からカンマ等を含む自然な英文テキストを復元するヘルパー
+function joinChunkSpanText(chunkSlice, tokens) {
+  if (!Array.isArray(chunkSlice) || chunkSlice.length === 0) return "";
+  const startId = chunkSlice[0].start;
+  const endId = chunkSlice[chunkSlice.length - 1].end;
+  if (Array.isArray(tokens) && typeof startId === "number" && typeof endId === "number") {
+    const spanTokens = tokens.filter((t) => t.id >= startId && t.id <= endId);
+    if (spanTokens.length > 0) {
+      let text = "";
+      spanTokens.forEach((t, idx) => {
+        if (idx > 0 && !/^[,.;:!?)]$/.test(t.text)) {
+          text += " ";
+        }
+        text += t.text;
+      });
+      return text;
+    }
+  }
+  return chunkSlice.map((c) => c.text).join(" ");
+}
+
+// 同じ役割（S/O/C/M）の並列チャンク列（A, B, and C）を1つの「並列句」チャンクへ入れ子化するヘルパー
+function collapseCoordinatedArgChunks(chunkList, tokens, isTopLevel = false) {
+  const result = [];
+  let i = 0;
+  while (i < chunkList.length) {
+    const role = chunkList[i].role;
+    if (role === "S" || role === "O" || role === "C" || role === "M") {
+      const baseDisp = chunkList[i].displayRoleLabel || role;
+      let j = i + 1;
+      let hasConj = false;
+
+      while (j < chunkList.length) {
+        if (
+          chunkList[j].role === "Conj" &&
+          j + 1 < chunkList.length &&
+          chunkList[j + 1].role === role &&
+          (chunkList[j + 1].displayRoleLabel || role) === baseDisp
+        ) {
+          hasConj = true;
+          j += 2;
+        } else if (
+          chunkList[j].role === role &&
+          (chunkList[j].displayRoleLabel || role) === baseDisp
+        ) {
+          let k = j + 1;
+          let conjAhead = false;
+          while (k < chunkList.length) {
+            if (
+              chunkList[k].role === "Conj" &&
+              k + 1 < chunkList.length &&
+              chunkList[k + 1].role === role
+            ) {
+              conjAhead = true;
+              break;
+            } else if (chunkList[k].role === role) {
+              k++;
+            } else {
+              break;
+            }
+          }
+          if (conjAhead) {
+            j++;
+          } else {
+            break;
+          }
+        } else {
+          break;
+        }
+      }
+
+      const isEntireNonTopList = !isTopLevel && i === 0 && j === chunkList.length;
+      if (hasConj && j - i >= 3 && !isEntireNonTopList) {
+        const seq = chunkList.slice(i, j);
+        result.push({
+          text: joinChunkSpanText(seq, tokens),
+          role: role,
+          displayRoleLabel: chunkList[i].displayRoleLabel || null,
+          clause_type: chunkList[i].clause_type || "並列句",
+          start: seq[0].start,
+          end: seq[seq.length - 1].end,
+          sub_chunks: seq
+        });
+        i = j;
+        continue;
+      }
+    }
+    result.push(chunkList[i]);
+    i++;
+  }
+  return result;
+}
+
+// チャンクブロック表示用に「VO, VO, and VO」の並列動詞句や「A, B, and C」の並列句を入れ子構造(sub_chunks)に変換する関数
+function buildDisplayChunksHierarchy(rawChunkList, tokens, isTopLevel = false) {
+  if (!Array.isArray(rawChunkList) || rawChunkList.length === 0) return [];
+
+  // 1. 既存の sub_chunks 内部を再帰的に階層化
+  const clonedList = rawChunkList.map((ch) => {
+    const copy = { ...ch };
+    if (Array.isArray(ch.sub_chunks) && ch.sub_chunks.length > 0) {
+      if (hasAdnominalModifierSubChunk(ch)) {
+        copy.sub_chunks = ch.sub_chunks.map((sub) => {
+          if (Array.isArray(sub.sub_chunks) && sub.sub_chunks.length > 0) {
+            return {
+              ...sub,
+              sub_chunks: buildDisplayChunksHierarchy(sub.sub_chunks, tokens, false)
+            };
+          }
+          return { ...sub };
+        });
+      } else {
+        copy.sub_chunks = buildDisplayChunksHierarchy(ch.sub_chunks, tokens, false);
+      }
+    }
+    return copy;
+  });
+
+  // 2. 同じ役割（S/O/C/M）の並列（A, B, and C）を先にまとめる
+  const collapsedList = collapseCoordinatedArgChunks(clonedList, tokens, isTopLevel);
+  if (collapsedList.length <= 1) return collapsedList;
+
+  const vIndicesAll = [];
+  collapsedList.forEach((c, idx) => {
+    if (c.role === "V") vIndicesAll.push(idx);
+  });
+
+  if (vIndicesAll.length >= 2) {
+    // 3. 重文（S1 V1 ..., S2 V2 ..., and S3 V3 ...）の節単位グループ化
+    const clauseStarts = [0];
+    for (let vi = 1; vi < vIndicesAll.length; vi++) {
+      const prevV = vIndicesAll[vi - 1];
+      const currV = vIndicesAll[vi];
+      const sIdxBetween = collapsedList.slice(prevV + 1, currV).findIndex((c) => c.role === "S");
+      if (sIdxBetween !== -1) {
+        let splitPos = prevV + 1 + sIdxBetween;
+        if (splitPos > 0 && collapsedList[splitPos - 1].role === "Conj") {
+          splitPos -= 1;
+        }
+        clauseStarts.push(splitPos);
+      }
+    }
+
+    if (clauseStarts.length >= 2) {
+      const coordClauseItems = [];
+      for (let ci = 0; ci < clauseStarts.length; ci++) {
+        const st = clauseStarts[ci];
+        const ed = ci + 1 < clauseStarts.length ? clauseStarts[ci + 1] : collapsedList.length;
+        let seg = collapsedList.slice(st, ed);
+        if (seg[0].role === "Conj" && seg.length > 1) {
+          coordClauseItems.push(seg[0]);
+          seg = seg.slice(1);
+        }
+        const nestedSeg = buildDisplayChunksHierarchy(seg, tokens, false);
+        coordClauseItems.push({
+          text: joinChunkSpanText(seg, tokens),
+          role: "V",
+          displayRoleLabel: "等位節",
+          clause_type: "等位節",
+          start: seg[0].start,
+          end: seg[seg.length - 1].end,
+          sub_chunks: nestedSeg
+        });
+      }
+      return coordClauseItems;
+    }
+
+    // 4. 並列動詞句（VP1, VP2, and VP3：例 Acquire knowledge, process information, and make decisions）の入れ子化
+    const firstVIdx = vIndicesAll[0];
+    const secondVIdx = vIndicesAll[1];
+    const hasSubjBetweenFirstTwoV = collapsedList
+      .slice(firstVIdx + 1, secondVIdx)
+      .some((c) => c.role === "S");
+    const hasConjAfterFirstV = collapsedList
+      .slice(firstVIdx + 1)
+      .some((c) => c.role === "Conj");
+
+    if (!hasSubjBetweenFirstTwoV && hasConjAfterFirstV) {
+      const prefixChunks = collapsedList.slice(0, firstVIdx);
+      const vpGroupItems = [];
+
+      for (let vi = 0; vi < vIndicesAll.length; vi++) {
+        const vStart = vIndicesAll[vi];
+        let vEnd = vi + 1 < vIndicesAll.length ? vIndicesAll[vi + 1] : collapsedList.length;
+
+        if (vStart > firstVIdx && collapsedList[vStart - 1].role === "Conj") {
+          vpGroupItems.push(collapsedList[vStart - 1]);
+        }
+        if (vi + 1 < vIndicesAll.length && collapsedList[vEnd - 1].role === "Conj") {
+          vEnd -= 1;
+        }
+
+        const singleVpChunks = collapsedList.slice(vStart, vEnd);
+        if (singleVpChunks.length >= 2) {
+          vpGroupItems.push({
+            text: joinChunkSpanText(singleVpChunks, tokens),
+            role: "V",
+            clause_type: "動詞句",
+            start: singleVpChunks[0].start,
+            end: singleVpChunks[singleVpChunks.length - 1].end,
+            sub_chunks: singleVpChunks
+          });
+        } else if (singleVpChunks.length === 1) {
+          vpGroupItems.push(singleVpChunks[0]);
+        }
+      }
+
+      // 親チャンク（不定詞句など）の直下全体が並列動詞句である場合は、二重枠にせず各VO句の配列を直接返す
+      if (!isTopLevel && prefixChunks.length === 0) {
+        return vpGroupItems;
+      }
+
+      const allVpSlice = collapsedList.slice(firstVIdx);
+      const coordVpChunk = {
+        text: joinChunkSpanText(allVpSlice, tokens),
+        role: "V",
+        clause_type: "並列動詞句",
+        start: allVpSlice[0].start,
+        end: allVpSlice[allVpSlice.length - 1].end,
+        sub_chunks: vpGroupItems
+      };
+      return [...prefixChunks, coordVpChunk];
+    }
+  }
+
+  return collapsedList;
+}
+
 // 5. 英文分析結果の描画
 function renderEnglishResult(data) {
   document.getElementById("en-pattern").textContent = data.pattern;
@@ -746,10 +974,11 @@ function renderEnglishResult(data) {
   // ⑤ 形式主語・真主語・形式目的語・真目的語の()付き表記および関係詞表記の適用
   annotateSpecialRolesAndRelatives(data.chunks, data.tokens, data.text);
 
-  // チャンクの描画（入れ子の内から外に行くにつれて濃いグレー）
+  // チャンクの描画（並列動詞句・並列句も入れ子構造に変換し、内から外に行くにつれて濃いグレーで表示）
+  const displayChunks = buildDisplayChunksHierarchy(data.chunks, data.tokens, true);
   const chunksContainer = document.getElementById("en-chunks");
   chunksContainer.innerHTML = "";
-  data.chunks.forEach((chunk) => {
+  displayChunks.forEach((chunk) => {
     chunksContainer.appendChild(createChunkElement(chunk));
   });
 
@@ -1119,8 +1348,83 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
     return node;
   });
 
+// 同じ役割の並列チャンク列（A, B, and C：S/O/C/Mの並列）を先に1つの並列句ノードへ束ねるヘルパー
+  function collapseCoordinatedArgRuns(nodesList, inModClause = false, grayLevel = 0) {
+    const result = [];
+    let i = 0;
+    while (i < nodesList.length) {
+      const role = nodesList[i].chunkRole;
+      if (role === "S" || role === "O" || role === "C" || role === "M") {
+        let j = i + 1;
+        let hasConj = false;
+        while (j < nodesList.length) {
+          if (nodesList[j].chunkRole === "Conj" && j + 1 < nodesList.length && nodesList[j + 1].chunkRole === role) {
+            hasConj = true;
+            j += 2;
+          } else if (
+            nodesList[j].chunkRole === role &&
+            nodesList[j].displayRoleLabel === nodesList[i].displayRoleLabel
+          ) {
+            // カンマ区切りの A, B, and C のうち、後ろに Conj + 同ロール が続く場合のみ同一並列グループに含める
+            let k = j + 1;
+            let conjAhead = false;
+            while (k < nodesList.length) {
+              if (nodesList[k].chunkRole === "Conj" && k + 1 < nodesList.length && nodesList[k + 1].chunkRole === role) {
+                conjAhead = true;
+                break;
+              } else if (nodesList[k].chunkRole === role) {
+                k++;
+              } else {
+                break;
+              }
+            }
+            if (conjAhead) {
+              j++;
+            } else {
+              break;
+            }
+          } else {
+            break;
+          }
+        }
+
+        if (hasConj && j - i >= 3) {
+          const seq = nodesList.slice(i, j);
+          const mergedItems = [];
+          let m = 0;
+          while (m < seq.length) {
+            if (seq[m].chunkRole === "Conj" && m + 1 < seq.length) {
+              const cRight = mergeTwoNodes(seq[m], seq[m + 1], `Conj + ${role}`, role, inModClause, grayLevel);
+              cRight.chunkRole = role;
+              mergedItems.push(cRight);
+              m += 2;
+            } else {
+              mergedItems.push(seq[m]);
+              m++;
+            }
+          }
+          let coordNode = mergedItems[0];
+          for (let k = 1; k < mergedItems.length; k++) {
+            const isLast = k === mergedItems.length - 1;
+            const lbl = isLast ? `${role} (並列句)` : `${role} + ${role}`;
+            coordNode = mergeTwoNodes(coordNode, mergedItems[k], lbl, role, inModClause, grayLevel);
+          }
+          coordNode.chunkRole = role;
+          coordNode.displayRoleLabel = nodesList[i].displayRoleLabel || `${role} (並列句)`;
+          result.push(coordNode);
+          i = j;
+          continue;
+        }
+      }
+      result.push(nodesList[i]);
+      i++;
+    }
+    return result;
+  }
+
   // 節内部（または主節）のチャンクノード列を結合して1つの節/文ノードにするヘルパー
-  function buildClauseTreeFromNodes(nodesSlice, isTopSentence, inModClause = false, grayLevel = 0) {
+  function buildClauseTreeFromNodes(rawNodesSlice, isTopSentence, inModClause = false, grayLevel = 0) {
+    const nodesSlice = collapseCoordinatedArgRuns(rawNodesSlice, inModClause, grayLevel);
     if (nodesSlice.length === 1) return nodesSlice[0];
 
     if ((nodesSlice[0].chunkRole === "Conj" || nodesSlice[0].chunkRole === "関係詞") && nodesSlice.length > 1) {
@@ -1130,31 +1434,108 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
       return mergeTwoNodes(nodesSlice[0], restTree, topLbl, isTopSentence ? "Sentence" : "VP", inModClause, grayLevel);
     }
 
-    const conjIdx = nodesSlice.findIndex((n, idx) => idx > 0 && n.chunkRole === "Conj");
-    const firstVIdx = nodesSlice.findIndex((n) => n.chunkRole === "V");
-    if (conjIdx !== -1 && firstVIdx !== -1 && conjIdx > firstVIdx) {
-      const rightSlice = nodesSlice.slice(conjIdx + 1);
-      const rightHasOwnSubjAndVerb = rightSlice.some((n) => n.chunkRole === "S") && rightSlice.some((n) => n.chunkRole === "V");
+    // 1. 重文（S1 V1 ..., S2 V2 ..., and S3 V3 ...）の分割・結合
+    const vIndicesAll = [];
+    nodesSlice.forEach((n, idx) => {
+      if (n.chunkRole === "V") vIndicesAll.push(idx);
+    });
 
-      if (rightHasOwnSubjAndVerb) {
-        const clause1 = buildClauseTreeFromNodes(nodesSlice.slice(0, conjIdx), false, inModClause, grayLevel);
-        const conjNode = nodesSlice[conjIdx];
-        const clause2 = buildClauseTreeFromNodes(rightSlice, false, inModClause, grayLevel);
-        const conjRight = mergeTwoNodes(conjNode, clause2, "Conj + 節", "VP", inModClause, grayLevel);
-        const topLbl = isTopSentence ? "文 (重文)" : "節 + 節";
-        return mergeTwoNodes(clause1, conjRight, topLbl, isTopSentence ? "Sentence" : "VP", inModClause, grayLevel);
+    if (vIndicesAll.length >= 2) {
+      const clauseStarts = [0];
+      for (let vi = 1; vi < vIndicesAll.length; vi++) {
+        const prevV = vIndicesAll[vi - 1];
+        const currV = vIndicesAll[vi];
+        const sIdxBetween = nodesSlice.slice(prevV + 1, currV).findIndex((n) => n.chunkRole === "S");
+        if (sIdxBetween !== -1) {
+          let splitPos = prevV + 1 + sIdxBetween;
+          if (splitPos > 0 && nodesSlice[splitPos - 1].chunkRole === "Conj") {
+            splitPos -= 1;
+          }
+          clauseStarts.push(splitPos);
+        }
       }
 
-      if (!rightSlice.some((n) => n.chunkRole === "S")) {
-        const prefixNodes = nodesSlice.slice(0, firstVIdx);
-        const vp1Nodes = nodesSlice.slice(firstVIdx, conjIdx);
-        const conjNode = nodesSlice[conjIdx];
-        const vp2Nodes = rightSlice;
+      if (clauseStarts.length >= 2) {
+        const clauseTreeUnits = [];
+        for (let ci = 0; ci < clauseStarts.length; ci++) {
+          const st = clauseStarts[ci];
+          const ed = ci + 1 < clauseStarts.length ? clauseStarts[ci + 1] : nodesSlice.length;
+          const seg = nodesSlice.slice(st, ed);
+          if (seg[0].chunkRole === "Conj" && seg.length > 1) {
+            const innerCl = buildClauseTreeFromNodes(seg.slice(1), false, inModClause, grayLevel);
+            clauseTreeUnits.push(mergeTwoNodes(seg[0], innerCl, "Conj + 節", "VP", inModClause, grayLevel));
+          } else {
+            clauseTreeUnits.push(buildClauseTreeFromNodes(seg, false, inModClause, grayLevel));
+          }
+        }
+        let combinedClauses = clauseTreeUnits[0];
+        for (let ci = 1; ci < clauseTreeUnits.length; ci++) {
+          const isTop = isTopSentence && ci === clauseTreeUnits.length - 1;
+          const topLbl = isTop ? "文 (重文)" : "節 + 節";
+          combinedClauses = mergeTwoNodes(
+            combinedClauses,
+            clauseTreeUnits[ci],
+            topLbl,
+            isTop ? "Sentence" : "VP",
+            inModClause,
+            grayLevel
+          );
+        }
+        return combinedClauses;
+      }
 
-        const vp1 = buildClauseTreeFromNodes(vp1Nodes, false, inModClause, grayLevel);
-        const vp2 = buildClauseTreeFromNodes(vp2Nodes, false, inModClause, grayLevel);
-        const conjRight = mergeTwoNodes(conjNode, vp2, "Conj + VP", "VP", inModClause, grayLevel);
-        let combinedVp = mergeTwoNodes(vp1, conjRight, "VP (並列述部)", "VP", inModClause, grayLevel);
+      // 2. 並列動詞句（VP1, VP2, and VP3：例 Acquire knowledge, process information, and make decisions）の分割・結合
+      const firstVIdx = vIndicesAll[0];
+      const secondVIdx = vIndicesAll[1];
+      const hasSubjBetweenFirstTwoV = nodesSlice.slice(firstVIdx + 1, secondVIdx).some((n) => n.chunkRole === "S");
+      const isPhrasalVerbSplit =
+        vIndicesAll.length === 2 &&
+        !nodesSlice.some((n) => n.chunkRole === "Conj") &&
+        nodesSlice[secondVIdx].tokens &&
+        nodesSlice[secondVIdx].tokens.every((t) => t.tag === "RP" || t.dep === "prt");
+
+      if (!hasSubjBetweenFirstTwoV && !isPhrasalVerbSplit) {
+        const prefixNodes = nodesSlice.slice(0, firstVIdx);
+        const vpSegments = [];
+
+        for (let vi = 0; vi < vIndicesAll.length; vi++) {
+          const vStart = vIndicesAll[vi];
+          let vEnd = vi + 1 < vIndicesAll.length ? vIndicesAll[vi + 1] : nodesSlice.length;
+          let leadConj = null;
+
+          if (vStart > firstVIdx && nodesSlice[vStart - 1].chunkRole === "Conj") {
+            leadConj = nodesSlice[vStart - 1];
+          }
+          if (vi + 1 < vIndicesAll.length && nodesSlice[vEnd - 1].chunkRole === "Conj") {
+            vEnd -= 1;
+          }
+
+          // 各動詞句 (VO / VC / VM) を1つのVPにまとめる
+          const singleVpNodes = nodesSlice.slice(vStart, vEnd);
+          const vpTree = buildClauseTreeFromNodes(singleVpNodes, false, inModClause, grayLevel);
+          if (leadConj) {
+            vpSegments.push(mergeTwoNodes(leadConj, vpTree, "Conj + VP", "VP", inModClause, grayLevel));
+          } else {
+            vpSegments.push(vpTree);
+          }
+        }
+
+        let combinedVp = vpSegments[0];
+        for (let k = 1; k < vpSegments.length; k++) {
+          const isLastVp = k === vpSegments.length - 1;
+          const isTopHere = isTopSentence && prefixNodes.length === 0 && isLastVp;
+          const vpLbl = isTopHere
+            ? "文 (Sentence)"
+            : (isLastVp ? "VP (並列述部)" : "VP + VP");
+          combinedVp = mergeTwoNodes(
+            combinedVp,
+            vpSegments[k],
+            vpLbl,
+            isTopHere ? "Sentence" : "VP",
+            inModClause,
+            grayLevel
+          );
+        }
 
         for (let i = prefixNodes.length - 1; i >= 0; i--) {
           const isTop = isTopSentence && i === 0;
