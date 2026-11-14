@@ -425,21 +425,58 @@ analyzeBtn.addEventListener("click", async () => {
   }
 });
 
-// 入れ子チャンクが「先行詞 + 関係詞節/接触節/分詞修飾」構造を持っているか判定するヘルパー
-function hasAdnominalModifierSubChunk(chunk) {
-  if (!Array.isArray(chunk.sub_chunks) || chunk.sub_chunks.length < 2) return false;
-  const hasModSub = chunk.sub_chunks.some(
-    (s) => s.role === "M" && s.clause_type && /関係詞|接触節|分詞|同格|修飾/.test(s.clause_type)
+// サブチャンクが後置修飾を受ける被修飾語（先行詞・主要部名詞句）かどうか判定するヘルパー
+function isAdnominalHeadSubChunk(sub, parentChunk = null) {
+  if (!sub) return false;
+  if (["関係詞", "Conj", "V", "動名詞", "分詞", "前置詞"].includes(sub.role)) {
+    return false;
+  }
+  if (sub.clause_type && /関係詞|接触節|分詞句|同格節|後置修飾/.test(sub.clause_type)) {
+    return false;
+  }
+  if (sub.role !== "M") return true;
+  return Boolean(
+    parentChunk &&
+    parentChunk.role === "M" &&
+    !sub.clause_type &&
+    (!Array.isArray(sub.sub_chunks) || sub.sub_chunks.length === 0)
   );
-  const hasNonModSub = chunk.sub_chunks.some((s) => s.role !== "M");
-  return hasModSub && hasNonModSub;
+}
+
+// 入れ子チャンクが「先行詞(被修飾語) + 関係詞節/接触節/分詞句/同格節/後置修飾不定詞」構造を持っているか判定するヘルパー
+function hasAdnominalModifierSubChunk(chunk) {
+  if (!chunk || !Array.isArray(chunk.sub_chunks) || chunk.sub_chunks.length < 2) return false;
+  if (chunk.clause_type && /節|構文|不定詞|動名詞|動詞/.test(chunk.clause_type)) {
+    return false;
+  }
+  const hasPredicateOrPrep = chunk.sub_chunks.some((s) =>
+    ["V", "動名詞", "分詞", "前置詞"].includes(s.role)
+  );
+  if (hasPredicateOrPrep) return false;
+
+  const firstModIdx = chunk.sub_chunks.findIndex(
+    (s) =>
+      s.role === "M" &&
+      s.clause_type &&
+      /関係詞|接触節|分詞句|同格節|後置修飾/.test(s.clause_type) &&
+      !/複合関係詞/.test(s.clause_type)
+  );
+  if (firstModIdx <= 0) return false;
+
+  return chunk.sub_chunks
+    .slice(0, firstModIdx)
+    .some((s) => isAdnominalHeadSubChunk(s, chunk));
 }
 
 // 入れ子チャンクが関係詞節（関係詞・接触節）による修飾構造を持っているか判定するヘルパー
 function hasRelativeModifierSubChunk(chunk) {
-  if (!Array.isArray(chunk.sub_chunks) || chunk.sub_chunks.length < 2) return false;
+  if (!hasAdnominalModifierSubChunk(chunk)) return false;
   return chunk.sub_chunks.some(
-    (s) => s.role === "M" && s.clause_type && /関係詞|接触節/.test(s.clause_type)
+    (s) =>
+      s.role === "M" &&
+      s.clause_type &&
+      /関係詞|接触節/.test(s.clause_type) &&
+      !/複合関係詞/.test(s.clause_type)
   );
 }
 
@@ -629,7 +666,7 @@ function appendFlattenedModifierItems(container, subChunkList, forceGrayScale, c
             subSep.textContent = "/";
             container.appendChild(subSep);
           }
-          if (sub.role !== "M" && sub.role !== "関係詞" && sub.role !== "Conj") {
+          if (isAdnominalHeadSubChunk(sub, item)) {
             const antColor = forceGrayScale ? shadeClassForCurrent : `role-${safeRole}`;
             const antLabel = isRelMod
               ? `${item.role} (先行詞)`
@@ -707,7 +744,7 @@ function createChunkElement(chunk) {
           subContainer.appendChild(sep);
         }
 
-        if (sub.role !== "M" && sub.role !== "関係詞" && sub.role !== "Conj") {
+        if (isAdnominalHeadSubChunk(sub, chunk)) {
           // 被修飾語：Mチャンクなら外側のグレー(chunkGrayLevel)、S/O/Cなら元の骨格カラー
           const antColorClass = isMod ? `m-shade-${chunkGrayLevel}` : `role-${safeRole}`;
           const antLabel = isRelMod
@@ -808,14 +845,14 @@ function collapseCoordinatedArgChunks(chunkList, tokens, isTopLevel = false) {
       chunkList[i].role === "Conj" &&
       CORRELATIVE_LEAD_REGEX.test(String(chunkList[i].text || "").trim()) &&
       i + 1 < chunkList.length &&
-      ["S", "O", "C", "M"].includes(chunkList[i + 1].role)
+      ["S", "O", "C", "C / M", "M"].includes(chunkList[i + 1].role)
     ) {
       hasLeadPreconj = true;
       firstRoleIdx = i + 1;
     }
 
     const role = chunkList[firstRoleIdx].role;
-    if (role === "S" || role === "O" || role === "C" || role === "M") {
+    if (role === "S" || role === "O" || role === "C" || role === "C / M" || role === "M") {
       const baseKey = getSpecialRoleKey(chunkList[firstRoleIdx]);
       let j = firstRoleIdx + 1;
       let hasConj = false;
@@ -1280,6 +1317,7 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
     V: { fill: "#fef2f2", stroke: "#dc2626", badge: "#dc2626", text: "#991b1b" },
     O: { fill: "#ecfdf5", stroke: "#059669", badge: "#059669", text: "#065f46" },
     C: { fill: "#fffbeb", stroke: "#d97706", badge: "#d97706", text: "#92400e" },
+    "C / M": { fill: "#fffbeb", stroke: "#d97706", badge: "#d97706", text: "#92400e" },
     強調部分: { fill: "#f5f3ff", stroke: "#7c3aed", badge: "#7c3aed", text: "#5b21b6" },
     M: { fill: "#e2e8f0", stroke: "#64748b", badge: "#475569", text: "#0f172a" },
     関係詞: { fill: "#f8fafc", stroke: "#cbd5e1", badge: "#94a3b8", text: "#334155" },
@@ -1323,7 +1361,7 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
 
       const childItems = ch.sub_chunks.map((sub) => {
         const subIsMod = sub.role === "M" || sub.role === "関係詞";
-        const subIsHeadNominal = isAdnominal && !subIsMod && sub.role !== "Conj";
+        const subIsHeadNominal = isAdnominal && isAdnominalHeadSubChunk(sub, ch);
         const subIsAnt = isRelMod && subIsHeadNominal;
         const hasGrandChildren = Array.isArray(sub.sub_chunks) && sub.sub_chunks.length > 0;
         const childGrayLevel = hasGrandChildren
@@ -1580,14 +1618,14 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
         nodesList[i].chunkRole === "Conj" &&
         CORRELATIVE_LEAD_REGEX.test(String(leadText).trim()) &&
         i + 1 < nodesList.length &&
-        ["S", "O", "C", "M"].includes(nodesList[i + 1].chunkRole)
+        ["S", "O", "C", "C / M", "M"].includes(nodesList[i + 1].chunkRole)
       ) {
         hasLeadPreconj = true;
         firstRoleIdx = i + 1;
       }
 
       const role = nodesList[firstRoleIdx].chunkRole;
-      if (role === "S" || role === "O" || role === "C" || role === "M") {
+      if (role === "S" || role === "O" || role === "C" || role === "C / M" || role === "M") {
         const baseKey = getSpecialRoleKey(nodesList[firstRoleIdx]);
         let j = firstRoleIdx + 1;
         let hasConj = false;
@@ -1941,7 +1979,8 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
       }
     }
 
-    const vIdx = nodesSlice.findIndex((n) => n.chunkRole === "V");
+    const isVerbalRole = (r) => r === "V" || r === "動名詞" || r === "分詞";
+    const vIdx = nodesSlice.findIndex((n) => isVerbalRole(n.chunkRole));
     if (vIdx === -1) {
       let cur = nodesSlice[0];
       for (let i = 1; i < nodesSlice.length; i++) {
@@ -1952,7 +1991,7 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
       return cur;
     }
 
-    const secondVIdx = nodesSlice.findIndex((n, idx) => idx > vIdx && n.chunkRole === "V");
+    const secondVIdx = nodesSlice.findIndex((n, idx) => idx > vIdx && isVerbalRole(n.chunkRole));
     const hasSubjBetweenV = secondVIdx !== -1 && nodesSlice.slice(vIdx + 1, secondVIdx).some((n) => n.chunkRole === "S");
 
     if (hasSubjBetweenV) {
@@ -1982,7 +2021,7 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
 
     let lastVIdx = vIdx;
     for (let i = vIdx + 1; i < nodesSlice.length; i++) {
-      if (nodesSlice[i].chunkRole === "V") lastVIdx = i;
+      if (isVerbalRole(nodesSlice[i].chunkRole)) lastVIdx = i;
     }
 
     const mainVerbTok = nodesSlice[vIdx].tokens ? nodesSlice[vIdx].tokens[nodesSlice[vIdx].tokens.length - 1] : null;
@@ -2014,13 +2053,13 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
         let mergeLabel = "VP (述部)";
         if ((nextRole === "O" && hasSeenObjAfterV && hasSeenCompAfterV) || nextNode.displayRoleLabel === "O (真目的語)") {
           mergeLabel = "VP + O (真目的語)";
-        } else if (nextRole === "O" || nextRole === "C") {
+        } else if (nextRole === "O" || nextRole === "C" || nextRole === "C / M") {
           mergeLabel = "VP (動詞句)";
         } else if (nextRole === "S" || nextNode.displayRoleLabel === "S (真主語)") {
           mergeLabel = "述部 + S (真主語)";
         }
         if (nextRole === "O") hasSeenObjAfterV = true;
-        if (nextRole === "C") hasSeenCompAfterV = true;
+        if (nextRole === "C" || nextRole === "C / M") hasSeenCompAfterV = true;
 
         if (isTopSentence && isLastRight) mergeLabel = "文 (Sentence)";
         vpNode = mergeTwoNodes(vpNode, nextNode, mergeLabel, isTopSentence && isLastRight ? "Sentence" : "VP", inModClause, grayLevel);
@@ -2084,7 +2123,7 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
     }
     const childNodes = item.children.map((ci) => buildNodeFromHierarchyItem(ci));
     let combined;
-    if (!item.clauseType && !childNodes.some((n) => n.chunkRole === "V")) {
+    if (!item.clauseType && !childNodes.some((n) => ["V", "動名詞", "分詞"].includes(n.chunkRole))) {
       combined = childNodes[0];
       for (let i = 1; i < childNodes.length; i++) {
         combined = mergeTwoNodes(combined, childNodes[i], item.role, item.role, false, item.grayLevel);
