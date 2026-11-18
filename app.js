@@ -979,8 +979,8 @@ function buildDisplayChunksHierarchy(rawChunkList, tokens, isTopLevel = false) {
   const collapsedList = collapseCoordinatedArgChunks(clonedList, tokens, isTopLevel);
   if (collapsedList.length <= 1) return collapsedList;
 
-  // 助動詞＋副詞＋動詞（has [V] greatly [M] improved [V]）や句動詞粒子のように、
-  // 直前のVとの間にカンマもConjも主語も存在しない分割Vは別動詞句の先頭から除外する
+  // 助動詞＋副詞＋動詞（has [V] greatly [M] improved [V]）、句動詞粒子、および
+  // 部分倒置（Rarely do [V] we [S] recognize [V]）のように1つ目のVの前にSがなく間にConjもカンマもない分割Vは別動詞句・等位節の先頭から除外する
   const vIndicesAll = [];
   collapsedList.forEach((c, idx) => {
     if (c.role !== "V") return;
@@ -996,9 +996,17 @@ function buildDisplayChunksHierarchy(rawChunkList, tokens, isTopLevel = false) {
         ch.displayRoleLabel !== "S (真主語)" &&
         ch.clause_type !== "真主語"
     );
+    const hasSubjBeforePrevV = collapsedList.slice(0, prevV).some(
+      (ch) =>
+        ch.role === "S" &&
+        ch.displayRoleLabel !== "S (真主語)" &&
+        ch.clause_type !== "真主語"
+    );
     const hasConjBetween = betweenSlice.some((ch) => ch.role === "Conj");
     const hasCommaBetween = hasCommaBetweenChunks(collapsedList[prevV], c, tokens);
-    if (hasSubjBetween || hasConjBetween || hasCommaBetween) {
+    const isAuxSubjVerbInversion =
+      hasSubjBetween && !hasSubjBeforePrevV && !hasConjBetween && !hasCommaBetween;
+    if (!isAuxSubjVerbInversion && (hasSubjBetween || hasConjBetween || hasCommaBetween)) {
       vIndicesAll.push(idx);
     }
   });
@@ -1744,7 +1752,7 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
     }
 
     // 1. 重文（S1 V1 ..., S2 V2 ..., and S3 V3 ...）および並列動詞句の分割点となるVインデックスを収集
-    //    （助動詞＋副詞＋本動詞や句動詞粒子のように間にカンマもConjもSもない分割Vは除外）
+    //    （助動詞＋副詞＋本動詞、句動詞粒子、および部分倒置 Aux + S + V の分割Vは除外）
     let vIndicesAll = [];
     nodesSlice.forEach((n, idx) => {
       if (n.chunkRole !== "V") return;
@@ -1757,9 +1765,14 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
       const hasSubjBetween = betweenSlice.some(
         (ch) => ch.chunkRole === "S" && ch.displayRoleLabel !== "S (真主語)"
       );
+      const hasSubjBeforePrevV = nodesSlice.slice(0, prevV).some(
+        (ch) => ch.chunkRole === "S" && ch.displayRoleLabel !== "S (真主語)"
+      );
       const hasConjBetween = betweenSlice.some((ch) => ch.chunkRole === "Conj");
       const hasCommaBetween = hasCommaBetweenTreeNodes(nodesSlice[prevV], n);
-      if (hasSubjBetween || hasConjBetween || hasCommaBetween) {
+      const isAuxSubjVerbInversion =
+        hasSubjBetween && !hasSubjBeforePrevV && !hasConjBetween && !hasCommaBetween;
+      if (!isAuxSubjVerbInversion && (hasSubjBetween || hasConjBetween || hasCommaBetween)) {
         vIndicesAll.push(idx);
       }
     });
@@ -2055,8 +2068,10 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
           mergeLabel = "VP + O (真目的語)";
         } else if (nextRole === "O" || nextRole === "C" || nextRole === "C / M") {
           mergeLabel = "VP (動詞句)";
-        } else if (nextRole === "S" || nextNode.displayRoleLabel === "S (真主語)") {
+        } else if (nextNode.displayRoleLabel === "S (真主語)") {
           mergeLabel = "述部 + S (真主語)";
+        } else if (nextRole === "S") {
+          mergeLabel = "V + S (倒置)";
         }
         if (nextRole === "O") hasSeenObjAfterV = true;
         if (nextRole === "C" || nextRole === "C / M") hasSeenCompAfterV = true;
