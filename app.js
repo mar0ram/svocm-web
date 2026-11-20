@@ -425,13 +425,40 @@ analyzeBtn.addEventListener("click", async () => {
   }
 });
 
+// 並列述部・並列節コンテナのロールかどうか判定するヘルパー
+function isCoordContainerRole(role) {
+  return role === "並列述部" || role === "並列節";
+}
+
+// 等位接続グループ (coord_group) 用の落ち着いた枠線カラークラスを返すヘルパー
+function getCoordBorderClass(coordGroup) {
+  if (typeof coordGroup !== "number" || coordGroup <= 0) return "";
+  return `coord-border coord-border-${((coordGroup - 1) % 5) + 1}`;
+}
+
+// 同じ coord_group に属する並列要素同士のグレーレベルをグループ内の最大値に揃えるマップを計算するヘルパー
+function computeCoordGroupGrayMap(chunkList, fallbackLevel = 0) {
+  const map = {};
+  if (!Array.isArray(chunkList)) return map;
+  chunkList.forEach((ch) => {
+    if (typeof ch.coord_group === "number" && ch.coord_group > 0) {
+      const hasSubs = Array.isArray(ch.sub_chunks) && ch.sub_chunks.length > 0;
+      const lv = hasSubs ? getChunkGrayLevel(ch) : clampGrayLevel(fallbackLevel);
+      if (map[ch.coord_group] === undefined || lv > map[ch.coord_group]) {
+        map[ch.coord_group] = lv;
+      }
+    }
+  });
+  return map;
+}
+
 // サブチャンクが後置修飾を受ける被修飾語（先行詞・主要部名詞句）かどうか判定するヘルパー
 function isAdnominalHeadSubChunk(sub, parentChunk = null) {
   if (!sub) return false;
-  if (["関係詞", "Conj", "V", "動名詞", "分詞", "前置詞"].includes(sub.role)) {
+  if (["関係詞", "Conj", "V", "動名詞", "分詞", "前置詞", "並列述部", "並列節"].includes(sub.role)) {
     return false;
   }
-  if (sub.clause_type && /関係詞|接触節|分詞句|同格節|後置修飾/.test(sub.clause_type)) {
+  if (sub.clause_type && /関係詞|接触節|分詞句|同格節|後置修飾|前置詞/.test(sub.clause_type)) {
     return false;
   }
   if (sub.role !== "M") return true;
@@ -443,14 +470,15 @@ function isAdnominalHeadSubChunk(sub, parentChunk = null) {
   );
 }
 
-// 入れ子チャンクが「先行詞(被修飾語) + 関係詞節/接触節/分詞句/同格節/後置修飾不定詞」構造を持っているか判定するヘルパー
+// 入れ子チャンクが「先行詞(被修飾語) + 関係詞節/接触節/分詞句/同格節/後置修飾不定詞/前置詞句」構造を持っているか判定するヘルパー
 function hasAdnominalModifierSubChunk(chunk) {
   if (!chunk || !Array.isArray(chunk.sub_chunks) || chunk.sub_chunks.length < 2) return false;
-  if (chunk.clause_type && /節|構文|不定詞|動名詞|動詞/.test(chunk.clause_type)) {
+  if (isCoordContainerRole(chunk.role)) return false;
+  if (chunk.clause_type && /節|構文|不定詞|動名詞|動詞|前置詞/.test(chunk.clause_type)) {
     return false;
   }
   const hasPredicateOrPrep = chunk.sub_chunks.some((s) =>
-    ["V", "動名詞", "分詞", "前置詞"].includes(s.role)
+    ["V", "動名詞", "分詞", "前置詞", "並列述部", "並列節"].includes(s.role)
   );
   if (hasPredicateOrPrep) return false;
 
@@ -458,7 +486,7 @@ function hasAdnominalModifierSubChunk(chunk) {
     (s) =>
       s.role === "M" &&
       s.clause_type &&
-      /関係詞|接触節|分詞句|同格節|後置修飾/.test(s.clause_type) &&
+      /関係詞|接触節|分詞句|同格節|後置修飾|前置詞/.test(s.clause_type) &&
       !/複合関係詞/.test(s.clause_type)
   );
   if (firstModIdx <= 0) return false;
@@ -630,9 +658,10 @@ function getChunkDisplayRoleText(chunk, includeClauseType = true) {
 }
 
 // 1つのインライン要素（先行詞や節内のチャンクチップ）を生成するヘルパー
-function createInlineChunkChip(text, roleLabel, colorClass) {
+function createInlineChunkChip(text, roleLabel, colorClass, coordGroup = null) {
   const chip = document.createElement("div");
-  chip.className = `inline-chunk-item ${colorClass}`;
+  const borderCls = getCoordBorderClass(coordGroup);
+  chip.className = `inline-chunk-item ${colorClass}${borderCls ? " " + borderCls : ""}`;
   chip.innerHTML = `
     <span class="inline-chunk-text">${escapeHtml(text)}</span>
     <span class="chunk-role">${escapeHtml(roleLabel)}</span>
@@ -640,9 +669,9 @@ function createInlineChunkChip(text, roleLabel, colorClass) {
   return chip;
 }
 
-// 修飾節・従属節の内部要素を、同じ節内の要素は同じグレー（外側がグレーA、内側の入れ子節がグレーB）で統一して展開するヘルパー
+// 修飾節・従属節の内部要素を、同じ節内の要素および並列要素同士が同じグレー（外側が濃いグレー、内側が薄いグレー）になるよう展開するヘルパー
 function appendFlattenedModifierItems(container, subChunkList, forceGrayScale, currentGrayLevel = 0) {
-  const shadeClassForCurrent = `m-shade-${clampGrayLevel(currentGrayLevel)}`;
+  const coordGrayMap = computeCoordGroupGrayMap(subChunkList, currentGrayLevel);
 
   subChunkList.forEach((item, idx) => {
     if (idx > 0) {
@@ -653,68 +682,117 @@ function appendFlattenedModifierItems(container, subChunkList, forceGrayScale, c
     }
 
     const safeRole = String(item.role).replace("+", "");
+    const hasSubs = Array.isArray(item.sub_chunks) && item.sub_chunks.length > 0;
+    const hasCoordLv =
+      typeof item.coord_group === "number" &&
+      coordGrayMap[item.coord_group] !== undefined;
+    const itemGrayLevel = hasCoordLv
+      ? coordGrayMap[item.coord_group]
+      : (hasSubs ? getChunkGrayLevel(item) : clampGrayLevel(currentGrayLevel));
+    const itemShadeClass = `m-shade-${clampGrayLevel(itemGrayLevel)}`;
+    const itemBorderCls = getCoordBorderClass(item.coord_group);
+    const itemBorderSuffix = itemBorderCls ? ` ${itemBorderCls}` : "";
 
-    if (Array.isArray(item.sub_chunks) && item.sub_chunks.length > 0) {
-      if (hasAdnominalModifierSubChunk(item)) {
-        // 節内の要素が「先行詞 + 関係詞節」等を持つ場合：被修飾語はこの節と同じグレー(currentGrayLevel)、修飾節は1段薄い内側のグレーで統一
+    if (hasSubs) {
+      if (isCoordContainerRole(item.role)) {
+        // 並列述部・並列節コンテナ：同じグループの大きいボックス同士を同じグレー背景・同じ枠線色に揃える
+        const groupLv = clampGrayLevel(itemGrayLevel);
+        const groupWrap = document.createElement("div");
+        groupWrap.className = `coord-block-group m-shade-${groupLv}${itemBorderSuffix}`;
+        appendFlattenedModifierItems(groupWrap, item.sub_chunks, forceGrayScale, groupLv);
+        container.appendChild(groupWrap);
+      } else if (hasAdnominalModifierSubChunk(item)) {
+        // 節内の要素が「先行詞 + 関係詞節/前置詞句」等を持つ場合
         const isRelMod = hasRelativeModifierSubChunk(item);
+        const headLv = clampGrayLevel(hasCoordLv ? itemGrayLevel : currentGrayLevel);
+        const headShadeClass = `m-shade-${headLv}`;
+        const innerCoordMap = computeCoordGroupGrayMap(item.sub_chunks, headLv);
+        const wrapInCoordBox = Boolean(itemBorderCls);
+        const targetContainer = wrapInCoordBox ? document.createElement("div") : container;
+        if (wrapInCoordBox) {
+          targetContainer.className = `coord-block-group ${forceGrayScale ? headShadeClass : `role-${safeRole}`}${itemBorderSuffix}`;
+        }
         let hasAppendedSub = false;
         item.sub_chunks.forEach((sub) => {
           if (hasAppendedSub) {
             const subSep = document.createElement("span");
             subSep.className = "sub-chunk-sep";
             subSep.textContent = "/";
-            container.appendChild(subSep);
+            targetContainer.appendChild(subSep);
           }
           if (isAdnominalHeadSubChunk(sub, item)) {
-            const antColor = forceGrayScale ? shadeClassForCurrent : `role-${safeRole}`;
+            const antColor = forceGrayScale ? headShadeClass : `role-${safeRole}`;
             const antLabel = isRelMod
               ? `${item.role} (先行詞)`
               : (sub.displayRoleLabel || item.displayRoleLabel || sub.role);
-            container.appendChild(createInlineChunkChip(sub.text, antLabel, antColor));
+            targetContainer.appendChild(createInlineChunkChip(sub.text, antLabel, antColor, sub.coord_group));
             hasAppendedSub = true;
           } else if (Array.isArray(sub.sub_chunks) && sub.sub_chunks.length > 0) {
-            const subLv = getChunkGrayLevel(sub);
+            const subLv =
+              typeof sub.coord_group === "number" &&
+              innerCoordMap[sub.coord_group] !== undefined
+                ? innerCoordMap[sub.coord_group]
+                : getChunkGrayLevel(sub);
+            const subBorderCls = getCoordBorderClass(sub.coord_group);
             const groupWrap = document.createElement("div");
-            groupWrap.className = `mod-clause-group m-shade-${subLv}`;
+            groupWrap.className = `mod-clause-group m-shade-${clampGrayLevel(subLv)}${subBorderCls ? " " + subBorderCls : ""}`;
             appendFlattenedModifierItems(groupWrap, sub.sub_chunks, true, subLv);
-            container.appendChild(groupWrap);
+            targetContainer.appendChild(groupWrap);
             hasAppendedSub = true;
           } else {
-            container.appendChild(createInlineChunkChip(sub.text, getChunkDisplayRoleText(sub, true), shadeClassForCurrent));
+            const subLv =
+              typeof sub.coord_group === "number" &&
+              innerCoordMap[sub.coord_group] !== undefined
+                ? innerCoordMap[sub.coord_group]
+                : headLv;
+            targetContainer.appendChild(
+              createInlineChunkChip(sub.text, getChunkDisplayRoleText(sub, true), `m-shade-${clampGrayLevel(subLv)}`, sub.coord_group)
+            );
             hasAppendedSub = true;
           }
         });
+        if (wrapInCoordBox) {
+          container.appendChild(targetContainer);
+        }
       } else {
-        // 内側の入れ子節（【that S2 V2】など）は、その節固有のグレー(subLv)の枠で囲み、内部要素もすべて同じ subLv で統一
-        const subLv = getChunkGrayLevel(item);
+        // 内側の入れ子節（【that S2 V2】や前置詞句など）は、同じ並列グループなら同じグレー背景・同じ枠線色で統一
+        const subLv = clampGrayLevel(itemGrayLevel);
         const groupWrap = document.createElement("div");
-        groupWrap.className = `mod-clause-group m-shade-${subLv}`;
+        groupWrap.className = `mod-clause-group m-shade-${subLv}${itemBorderSuffix}`;
         appendFlattenedModifierItems(groupWrap, item.sub_chunks, true, subLv);
         container.appendChild(groupWrap);
       }
     } else {
       const roleLabel = getChunkDisplayRoleText(item, true);
-      // 同じ節に直接属する要素（that, S1, V1 など）はすべて親節と同じグレー(currentGrayLevel)で統一
-      const colorClass = forceGrayScale ? shadeClassForCurrent : `role-${safeRole}`;
-      container.appendChild(createInlineChunkChip(item.text, roleLabel, colorClass));
+      const isModRole = safeRole === "M" || safeRole === "関係詞" || safeRole === "前置詞";
+      const colorClass = forceGrayScale || isModRole ? itemShadeClass : `role-${safeRole}`;
+      container.appendChild(createInlineChunkChip(item.text, roleLabel, colorClass, item.coord_group));
     }
   });
 }
 
-// チャンク要素（展開ボタン付き・節単位のグレー統一・内から外に行くにつれて濃いグレー）を生成する関数
-function createChunkElement(chunk) {
+// チャンク要素（展開ボタン付き・本文の核となるSVOC以外は階層ごとのグレー統一・並列要素同士は同色枠線）を生成する関数
+function createChunkElement(chunk, coordGrayMap = null) {
   const div = document.createElement("div");
   const safeRole = String(chunk.role).replace("+", "");
   const isMod = safeRole === "M" || safeRole === "関係詞";
-  const chunkGrayLevel = getChunkGrayLevel(chunk);
-  const outerGrayLevel = Array.isArray(chunk.sub_chunks) && chunk.sub_chunks.length > 0
-    ? chunkGrayLevel
-    : 2;
-  const shadeClass = isMod ? ` m-shade-${outerGrayLevel}` : "";
+  const isCoordContainer = isCoordContainerRole(chunk.role);
+  const hasSubs = Array.isArray(chunk.sub_chunks) && chunk.sub_chunks.length > 0;
+  const rawGrayLevel = getChunkGrayLevel(chunk);
+  const mappedGrayLevel =
+    coordGrayMap &&
+    typeof chunk.coord_group === "number" &&
+    coordGrayMap[chunk.coord_group] !== undefined
+      ? coordGrayMap[chunk.coord_group]
+      : (hasSubs ? rawGrayLevel : 2);
+  const chunkGrayLevel = hasSubs ? mappedGrayLevel : rawGrayLevel;
+  const outerGrayLevel = mappedGrayLevel;
+  const shadeClass = isMod || isCoordContainer ? ` m-shade-${clampGrayLevel(outerGrayLevel)}` : "";
+  const borderCls = getCoordBorderClass(chunk.coord_group);
+  const borderSuffix = borderCls ? ` ${borderCls}` : "";
 
-  if (Array.isArray(chunk.sub_chunks) && chunk.sub_chunks.length > 0) {
-    div.className = `chunk-box chunk-nested role-${safeRole}${shadeClass}`;
+  if (hasSubs) {
+    div.className = `chunk-box chunk-nested role-${safeRole}${shadeClass}${borderSuffix}`;
     const isAdnominal = hasAdnominalModifierSubChunk(chunk);
     const headerRoleLabel = getChunkDisplayRoleText(chunk, !isAdnominal);
 
@@ -732,8 +810,9 @@ function createChunkElement(chunk) {
     subContainer.className = "sub-chunks-container hidden";
 
     if (isAdnominal) {
-      // 先行詞 + 関係詞節/接触節 または 被修飾語 + 分詞句 等 の構造
+      // 先行詞 + 関係詞節/接触節 または 被修飾語 + 分詞句/前置詞句 等 の構造
       const isRelMod = hasRelativeModifierSubChunk(chunk);
+      const innerCoordMap = computeCoordGroupGrayMap(chunk.sub_chunks, chunkGrayLevel);
       let hasAppendedAny = false;
 
       chunk.sub_chunks.forEach((sub) => {
@@ -746,28 +825,40 @@ function createChunkElement(chunk) {
 
         if (isAdnominalHeadSubChunk(sub, chunk)) {
           // 被修飾語：Mチャンクなら外側のグレー(chunkGrayLevel)、S/O/Cなら元の骨格カラー
-          const antColorClass = isMod ? `m-shade-${chunkGrayLevel}` : `role-${safeRole}`;
+          const antColorClass = isMod ? `m-shade-${clampGrayLevel(chunkGrayLevel)}` : `role-${safeRole}`;
           const antLabel = isRelMod
             ? "先行詞"
             : (sub.displayRoleLabel || chunk.displayRoleLabel || sub.role);
-          subContainer.appendChild(createInlineChunkChip(sub.text, antLabel, antColorClass));
+          subContainer.appendChild(createInlineChunkChip(sub.text, antLabel, antColorClass, sub.coord_group));
           hasAppendedAny = true;
         } else if (Array.isArray(sub.sub_chunks) && sub.sub_chunks.length > 0) {
-          // 関係詞節・接触節・分詞修飾のまとまり枠（内部要素もすべて subLv で統一）
-          const subLv = getChunkGrayLevel(sub);
+          // 関係詞節・接触節・分詞修飾・前置詞句のまとまり枠（内部要素もすべて subLv で統一）
+          const subLv =
+            typeof sub.coord_group === "number" &&
+            innerCoordMap[sub.coord_group] !== undefined
+              ? innerCoordMap[sub.coord_group]
+              : getChunkGrayLevel(sub);
+          const subBorderCls = getCoordBorderClass(sub.coord_group);
           const groupWrap = document.createElement("div");
-          groupWrap.className = `mod-clause-group m-shade-${subLv}`;
+          groupWrap.className = `mod-clause-group m-shade-${clampGrayLevel(subLv)}${subBorderCls ? " " + subBorderCls : ""}`;
           appendFlattenedModifierItems(groupWrap, sub.sub_chunks, true, subLv);
           subContainer.appendChild(groupWrap);
           hasAppendedAny = true;
         } else {
-          subContainer.appendChild(createInlineChunkChip(sub.text, getChunkDisplayRoleText(sub, true), `m-shade-${chunkGrayLevel}`));
+          const subLv =
+            typeof sub.coord_group === "number" &&
+            innerCoordMap[sub.coord_group] !== undefined
+              ? innerCoordMap[sub.coord_group]
+              : chunkGrayLevel;
+          subContainer.appendChild(
+            createInlineChunkChip(sub.text, getChunkDisplayRoleText(sub, true), `m-shade-${clampGrayLevel(subLv)}`, sub.coord_group)
+          );
           hasAppendedAny = true;
         }
       });
     } else {
-      // 名詞節・副詞節・分詞構文・付帯状況などの内部展開（この節の要素はすべて chunkGrayLevel で統一）
-      const useGrayForInner = isMod || Boolean(chunk.clause_type);
+      // 名詞節・副詞節・分詞構文・付帯状況などの内部展開（主節直下の並列述部・並列節コンテナ内部は核となるSVOCカラーを維持）
+      const useGrayForInner = !isCoordContainer && (isMod || Boolean(chunk.clause_type));
       appendFlattenedModifierItems(subContainer, chunk.sub_chunks, useGrayForInner, chunkGrayLevel);
     }
 
@@ -781,7 +872,7 @@ function createChunkElement(chunk) {
     div.appendChild(headerDiv);
     div.appendChild(subContainer);
   } else {
-    div.className = `chunk-box role-${safeRole}${shadeClass}`;
+    div.className = `chunk-box role-${safeRole}${shadeClass}${borderSuffix}`;
     const typeLabel = getChunkDisplayRoleText(chunk, true);
     div.innerHTML = `
       <span class="chunk-text">${escapeHtml(chunk.text)}</span>
@@ -905,7 +996,12 @@ function collapseCoordinatedArgChunks(chunkList, tokens, isTopLevel = false) {
 
       const startSliceIdx = hasLeadPreconj ? i : firstRoleIdx;
       const isEntireNonTopList = !isTopLevel && startSliceIdx === 0 && j === chunkList.length;
-      if (hasConj && j - firstRoleIdx >= 3 && !isEntireNonTopList) {
+      const isPrepCoordObjList =
+        !isTopLevel &&
+        startSliceIdx === 1 &&
+        chunkList[0].role === "前置詞" &&
+        j === chunkList.length;
+      if (hasConj && j - firstRoleIdx >= 3 && !isEntireNonTopList && !isPrepCoordObjList) {
         const seq = chunkList.slice(startSliceIdx, j);
         const roleItems = seq.filter((c) => c.role === role);
         const firstClauseType = chunkList[firstRoleIdx].clause_type;
@@ -961,7 +1057,7 @@ function buildDisplayChunksHierarchy(rawChunkList, tokens, isTopLevel = false) {
         });
       } else {
         copy.sub_chunks = buildDisplayChunksHierarchy(ch.sub_chunks, tokens, false);
-        if (!copy.clause_type && copy.sub_chunks.some((s) => s.role === "Conj")) {
+        if (!copy.clause_type && !isCoordContainerRole(copy.role) && copy.sub_chunks.some((s) => s.role === "Conj")) {
           const innerRoleItems = copy.sub_chunks.filter((s) => s.role === copy.role);
           const firstInnerType = innerRoleItems.length > 0 ? innerRoleItems[0].clause_type : null;
           if (firstInnerType && innerRoleItems.every((s) => s.clause_type === firstInnerType)) {
@@ -1221,12 +1317,13 @@ function renderEnglishResult(data) {
   // ⑤ 形式主語・真主語・形式目的語・真目的語の()付き表記および関係詞表記の適用
   annotateSpecialRolesAndRelatives(data.chunks, data.tokens, data.text);
 
-  // チャンクの描画（並列動詞句・並列句も入れ子構造に変換し、内から外に行くにつれて濃いグレーで表示）
+  // チャンクの描画（並列動詞句・並列句も入れ子構造に変換し、本文の核となるSVOC以外は階層ごとのグレーで表示）
   const displayChunks = buildDisplayChunksHierarchy(data.chunks, data.tokens, true);
+  const topCoordGrayMap = computeCoordGroupGrayMap(displayChunks, 2);
   const chunksContainer = document.getElementById("en-chunks");
   chunksContainer.innerHTML = "";
   displayChunks.forEach((chunk) => {
-    chunksContainer.appendChild(createChunkElement(chunk));
+    chunksContainer.appendChild(createChunkElement(chunk, topCoordGrayMap));
   });
 
   // 文法網羅チェッカー（13項目）の描画
@@ -1328,6 +1425,11 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
     "C / M": { fill: "#fffbeb", stroke: "#d97706", badge: "#d97706", text: "#92400e" },
     強調部分: { fill: "#f5f3ff", stroke: "#7c3aed", badge: "#7c3aed", text: "#5b21b6" },
     M: { fill: "#e2e8f0", stroke: "#64748b", badge: "#475569", text: "#0f172a" },
+    前置詞: { fill: "#f1f5f9", stroke: "#94a3b8", badge: "#64748b", text: "#1e293b" },
+    動名詞: { fill: "#f1f5f9", stroke: "#94a3b8", badge: "#64748b", text: "#1e293b" },
+    分詞: { fill: "#f1f5f9", stroke: "#94a3b8", badge: "#64748b", text: "#1e293b" },
+    並列述部: { fill: "#e2e8f0", stroke: "#64748b", badge: "#475569", text: "#0f172a" },
+    並列節: { fill: "#e2e8f0", stroke: "#64748b", badge: "#475569", text: "#0f172a" },
     関係詞: { fill: "#f8fafc", stroke: "#cbd5e1", badge: "#94a3b8", text: "#334155" },
     Conj: { fill: "#f8fafc", stroke: "#cbd5e1", badge: "#94a3b8", text: "#475569" },
     Other: { fill: "#f8fafc", stroke: "#cbd5e1", badge: "#64748b", text: "#334155" }
@@ -1341,9 +1443,29 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
     { fill: "#cbd5e1", stroke: "#475569", badge: "#334155", text: "#0f172a" }  // Level 3: 最外（最も濃い）
   ];
 
+  // 等位接続グループ (coord_group) 用の明るめで見やすい枠線カラーパレット（背景色は変えず枠線のみ強調）
+  const coordBorderStrokes = [
+    "#06b6d4", // Group 1: 明るいシアン
+    "#ec4899", // Group 2: 明るいローズピンク
+    "#6366f1", // Group 3: 明るいインディゴ
+    "#f97316", // Group 4: 明るいオレンジ
+    "#65a30d"  // Group 5: 明るいリーフグリーン
+  ];
+
+  function getCoordBorderStroke(coordGroup) {
+    if (typeof coordGroup !== "number" || coordGroup <= 0) return null;
+    return coordBorderStrokes[(coordGroup - 1) % coordBorderStrokes.length];
+  }
+
   function getRoleVisualStyle(role, grayLevel = 0, inModClause = false) {
     const clamped = clampGrayLevel(grayLevel);
-    if (inModClause || role === "M" || role === "関係詞") {
+    if (
+      inModClause ||
+      role === "M" ||
+      role === "関係詞" ||
+      role === "前置詞" ||
+      isCoordContainerRole(role)
+    ) {
       if (role === "強調部分") {
         return roleStyle["強調部分"];
       }
@@ -1353,28 +1475,37 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
   }
 
   // 1. 入れ子チャンク(sub_chunks)を再帰的に展開して葉グループ(groups)と階層構造を構築
-  // 同じ節に属する要素はすべて同じグレーレベルで統一し、内側の入れ子節ほど薄く(0)、外側の節ほど濃く(+1)する
+  // 同じ節および並列グループに属する要素はすべて同じグレーレベルで統一し、内側の入れ子節ほど薄く(0)、外側の節ほど濃く(+1)する
   const groups = [];
   const clauseBrackets = [];
 
   function registerChunkHierarchy(ch, inModClause = false, isAntecedent = false, currentGrayLevel = 0, isTopLevel = false) {
     const isMod = ch.role === "M" || ch.role === "関係詞";
+    const isCoordContainer = isCoordContainerRole(ch.role);
     const nextInMod = inModClause || isMod;
 
     if (Array.isArray(ch.sub_chunks) && ch.sub_chunks.length > 0) {
       const isAdnominal = hasAdnominalModifierSubChunk(ch);
       const isRelMod = hasRelativeModifierSubChunk(ch);
-      const myGrayLevel = isAdnominal && !isTopLevel ? currentGrayLevel : getChunkGrayLevel(ch);
-      const innerForceGray = nextInMod || Boolean(ch.clause_type);
+      const myGrayLevel = isTopLevel
+        ? currentGrayLevel
+        : (isAdnominal || isCoordContainer ? currentGrayLevel : currentGrayLevel);
+      const innerForceGray = isCoordContainer ? inModClause : (nextInMod || Boolean(ch.clause_type));
+      const childCoordGrayMap = computeCoordGroupGrayMap(ch.sub_chunks, myGrayLevel);
 
       const childItems = ch.sub_chunks.map((sub) => {
         const subIsMod = sub.role === "M" || sub.role === "関係詞";
         const subIsHeadNominal = isAdnominal && isAdnominalHeadSubChunk(sub, ch);
         const subIsAnt = isRelMod && subIsHeadNominal;
         const hasGrandChildren = Array.isArray(sub.sub_chunks) && sub.sub_chunks.length > 0;
-        const childGrayLevel = hasGrandChildren
-          ? (hasAdnominalModifierSubChunk(sub) ? myGrayLevel : getChunkGrayLevel(sub))
-          : myGrayLevel;
+        const hasSubCoordLv =
+          typeof sub.coord_group === "number" &&
+          childCoordGrayMap[sub.coord_group] !== undefined;
+        const childGrayLevel = hasSubCoordLv
+          ? childCoordGrayMap[sub.coord_group]
+          : (hasGrandChildren
+            ? (hasAdnominalModifierSubChunk(sub) ? myGrayLevel : getChunkGrayLevel(sub))
+            : myGrayLevel);
         const childInMod = subIsHeadNominal ? nextInMod : (innerForceGray || subIsMod);
         return registerChunkHierarchy(sub, childInMod, subIsAnt, childGrayLevel, false);
       }).filter(Boolean);
@@ -1387,17 +1518,24 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
         if (ci.bracketDepth > maxChildDepth) maxChildDepth = ci.bracketDepth;
       });
 
-      const shouldDrawBracket = Boolean(ch.clause_type) || Boolean(ch.displayRoleLabel) || maxChildDepth === 0;
+      const shouldDrawBracket =
+        isCoordContainer ||
+        Boolean(ch.clause_type) ||
+        Boolean(ch.displayRoleLabel) ||
+        maxChildDepth === 0;
       let myDepth = maxChildDepth;
       if (shouldDrawBracket) {
         myDepth = maxChildDepth + 1;
         const bLabel = ch.displayRoleLabel
           ? ch.displayRoleLabel
-          : (ch.clause_type ? `${ch.role} (${ch.clause_type})` : `${ch.role} (節)`);
+          : (isCoordContainer
+            ? ch.role
+            : (ch.clause_type ? `${ch.role} (${ch.clause_type})` : `${ch.role} (節)`));
         clauseBrackets.push({
           role: ch.role,
           grayLevel: myGrayLevel,
-          inModClause: nextInMod,
+          inModClause: nextInMod || isCoordContainer,
+          coordGroup: ch.coord_group || null,
           label: bLabel,
           subGroupIndices: allLeafIndices,
           depth: myDepth
@@ -1409,7 +1547,8 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
         role: ch.role,
         displayRoleLabel: ch.displayRoleLabel || null,
         grayLevel: myGrayLevel,
-        inModClause: nextInMod,
+        inModClause: nextInMod || isCoordContainer,
+        coordGroup: ch.coord_group || null,
         clauseType: ch.clause_type || null,
         children: childItems,
         leafIndices: allLeafIndices,
@@ -1419,7 +1558,7 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
       const matched = validTokens.filter((t) => t.id >= ch.start && t.id <= ch.end);
       if (matched.length === 0) return null;
       const gIdx = groups.length;
-      const leafGrayLevel = isTopLevel && isMod ? 2 : currentGrayLevel;
+      const leafGrayLevel = isTopLevel && isMod ? currentGrayLevel : currentGrayLevel;
       const dispRole = isAntecedent
         ? (isTopLevel ? "先行詞" : `${ch.role} (先行詞)`)
         : (ch.displayRoleLabel || ch.role);
@@ -1429,6 +1568,7 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
         displayRole: dispRole,
         grayLevel: leafGrayLevel,
         inModClause: nextInMod,
+        coordGroup: ch.coord_group || null,
         tokens: matched
       });
       return {
@@ -1437,6 +1577,7 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
         displayRoleLabel: dispRole,
         grayLevel: leafGrayLevel,
         inModClause: nextInMod,
+        coordGroup: ch.coord_group || null,
         groupIdx: gIdx,
         leafIndices: [gIdx],
         bracketDepth: 0
@@ -1446,8 +1587,14 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
 
   let hierarchyRoots = [];
   if (Array.isArray(chunks) && chunks.length > 0) {
+    const topTreeCoordGrayMap = computeCoordGroupGrayMap(chunks, 2);
     hierarchyRoots = chunks.map((ch) => {
-      const topLv = getChunkGrayLevel(ch);
+      const hasSubs = Array.isArray(ch.sub_chunks) && ch.sub_chunks.length > 0;
+      const topLv =
+        typeof ch.coord_group === "number" &&
+        topTreeCoordGrayMap[ch.coord_group] !== undefined
+          ? topTreeCoordGrayMap[ch.coord_group]
+          : (hasSubs ? getChunkGrayLevel(ch) : 2);
       return registerChunkHierarchy(ch, ch.role === "M" || ch.role === "関係詞", false, topLv, true);
     }).filter(Boolean);
   }
@@ -1595,6 +1742,7 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
     node.tokens = grp.tokens;
     node.inModClause = grp.inModClause;
     node.grayLevel = grp.grayLevel;
+    node.coordGroup = grp.coordGroup || null;
     return node;
   });
 
@@ -1611,8 +1759,9 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
     return tokens.some((t) => t.id > prevEndId && t.id < nextStartId && /^[,;]$/.test(t.text));
   }
 
-  // 同じ役割の並列チャンク列（A, B, and C や both A and B：S/O/C/Mの並列）を先に1つの並列句/並列節ノードへ束ねるヘルパー
+  // 同じ役割の並列チャンク列（A, B, and C や both A and B：S/O/C/M/並列述部/並列節の並列）を先に1つの並列ノードへ束ねるヘルパー
   function collapseCoordinatedArgRuns(nodesList, inModClause = false, grayLevel = 0) {
+    const coordTargetRoles = ["S", "O", "C", "C / M", "M", "並列述部", "並列節"];
     const result = [];
     let i = 0;
     while (i < nodesList.length) {
@@ -1626,14 +1775,14 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
         nodesList[i].chunkRole === "Conj" &&
         CORRELATIVE_LEAD_REGEX.test(String(leadText).trim()) &&
         i + 1 < nodesList.length &&
-        ["S", "O", "C", "C / M", "M"].includes(nodesList[i + 1].chunkRole)
+        coordTargetRoles.includes(nodesList[i + 1].chunkRole)
       ) {
         hasLeadPreconj = true;
         firstRoleIdx = i + 1;
       }
 
       const role = nodesList[firstRoleIdx].chunkRole;
-      if (role === "S" || role === "O" || role === "C" || role === "C / M" || role === "M") {
+      if (coordTargetRoles.includes(role)) {
         const baseKey = getSpecialRoleKey(nodesList[firstRoleIdx]);
         let j = firstRoleIdx + 1;
         let hasConj = false;
@@ -1693,13 +1842,23 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
           });
           const roleNodes = seq.filter((n) => n.chunkRole === role);
           const allAreClauses = roleNodes.every((n) => Boolean(n.isClauseContainer));
-          const finalCoordLabel = allAreClauses ? `${role} (並列節)` : `${role} (並列句)`;
+          const isCoordVp = role === "並列述部";
+          const isCoordClause = role === "並列節";
+          const mergedRoleKey = isCoordVp || isCoordClause ? "VP" : role;
+          const finalCoordLabel = isCoordVp
+            ? "VP (並列述部)"
+            : (isCoordClause
+              ? "並列節"
+              : (allAreClauses ? `${role} (並列節)` : `${role} (並列句)`));
 
           const mergedItems = [];
           let m = 0;
           while (m < seq.length) {
             if (seq[m].chunkRole === "Conj" && m + 1 < seq.length) {
-              const cRight = mergeTwoNodes(seq[m], seq[m + 1], `Conj + ${role}`, role, inModClause, grayLevel);
+              const stepLbl = isCoordVp
+                ? "Conj + VP"
+                : (isCoordClause ? "Conj + 節" : `Conj + ${role}`);
+              const cRight = mergeTwoNodes(seq[m], seq[m + 1], stepLbl, mergedRoleKey, inModClause, grayLevel);
               cRight.chunkRole = role;
               mergedItems.push(cRight);
               m += 2;
@@ -1711,13 +1870,18 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
           let coordNode = mergedItems[0];
           for (let k = 1; k < mergedItems.length; k++) {
             const isLast = k === mergedItems.length - 1;
-            const lbl = isLast ? finalCoordLabel : `${role} + ${role}`;
-            coordNode = mergeTwoNodes(coordNode, mergedItems[k], lbl, role, inModClause, grayLevel);
+            const pairLbl = isCoordVp
+              ? "VP + VP"
+              : (isCoordClause ? "節 + 節" : `${role} + ${role}`);
+            const lbl = isLast ? finalCoordLabel : pairLbl;
+            coordNode = mergeTwoNodes(coordNode, mergedItems[k], lbl, mergedRoleKey, inModClause, grayLevel);
           }
-          coordNode.chunkRole = role;
-          coordNode.displayRoleLabel = nodesList[firstRoleIdx].displayRoleLabel || finalCoordLabel;
+          coordNode.chunkRole = isCoordVp ? "V" : role;
+          coordNode.displayRoleLabel = isCoordVp || isCoordClause
+            ? finalCoordLabel
+            : (nodesList[firstRoleIdx].displayRoleLabel || finalCoordLabel);
           coordNode.tokens = allCombinedTokens;
-          coordNode.isClauseContainer = allAreClauses;
+          coordNode.isClauseContainer = allAreClauses || isCoordClause;
           result.push(coordNode);
           i = j;
           continue;
@@ -1732,7 +1896,13 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
   // 節内部（または主節）のチャンクノード列を結合して1つの節/文ノードにするヘルパー
   function buildClauseTreeFromNodes(rawNodesSlice, isTopSentence, inModClause = false, grayLevel = 0) {
     let nodesSlice = collapseCoordinatedArgRuns(rawNodesSlice, inModClause, grayLevel);
-    if (nodesSlice.length === 1) return nodesSlice[0];
+    if (nodesSlice.length === 1) {
+      if (isTopSentence && nodesSlice[0].chunkRole === "並列節") {
+        nodesSlice[0].label = "文 (重文)";
+        nodesSlice[0].role = "Sentence";
+      }
+      return nodesSlice[0];
+    }
 
     if ((nodesSlice[0].chunkRole === "Conj" || nodesSlice[0].chunkRole === "関係詞") && nodesSlice.length > 1) {
       const leadText = nodesSlice[0].tokens
@@ -2138,7 +2308,11 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
     }
     const childNodes = item.children.map((ci) => buildNodeFromHierarchyItem(ci));
     let combined;
-    if (!item.clauseType && !childNodes.some((n) => ["V", "動名詞", "分詞"].includes(n.chunkRole))) {
+    if (
+      !item.clauseType &&
+      !isCoordContainerRole(item.role) &&
+      !childNodes.some((n) => ["V", "動名詞", "分詞", "並列述部", "並列節"].includes(n.chunkRole))
+    ) {
       combined = childNodes[0];
       for (let i = 1; i < childNodes.length; i++) {
         combined = mergeTwoNodes(combined, childNodes[i], item.role, item.role, false, item.grayLevel);
@@ -2148,7 +2322,9 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
     }
     const nodeLabel = item.displayRoleLabel
       ? item.displayRoleLabel
-      : (item.clauseType ? `${item.role} (${item.clause_type || item.clauseType})` : item.role);
+      : (isCoordContainerRole(item.role)
+        ? item.role
+        : (item.clauseType ? `${item.role} (${item.clause_type || item.clauseType})` : item.role));
     const allChildTokens = [];
     childNodes.forEach((cn) => {
       if (Array.isArray(cn.tokens)) allChildTokens.push(...cn.tokens);
@@ -2158,9 +2334,10 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
     combined.chunkRole = item.role;
     combined.displayRoleLabel = item.displayRoleLabel || nodeLabel;
     combined.tokens = allChildTokens;
-    combined.isClauseContainer = Boolean(item.clauseType);
+    combined.isClauseContainer = Boolean(item.clauseType) || isCoordContainerRole(item.role);
     combined.inModClause = item.inModClause;
     combined.grayLevel = item.grayLevel;
+    combined.coordGroup = item.coordGroup || null;
     return combined;
   }
 
@@ -2213,7 +2390,7 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
     svgContent += `<line x1="${px}" y1="${py}" x2="${rx}" y2="${ry}" stroke="#475569" stroke-width="2" stroke-linecap="round" />`;
   });
 
-  // (B) 逆V字の結合点ラベル（楕円形：入れ子の内から外に行くにつれて濃いグレー）を描画
+  // (B) 逆V字の結合点ラベル（楕円形：背景は階層グレー/SVOC維持、並列グループは枠線色のみ統一）を描画
   mergeNodes.forEach((node) => {
     const nx = node.x;
     const ny = getNodeY(node);
@@ -2221,29 +2398,41 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
     let st;
     if (isSentence) {
       st = { fill: "#0f172a", stroke: "#0f172a", text: "#ffffff" };
-    } else if (node.inModClause || node.role === "M" || node.role === "関係詞") {
+    } else if (
+      node.inModClause ||
+      node.role === "M" ||
+      node.role === "関係詞" ||
+      node.role === "前置詞" ||
+      isCoordContainerRole(node.role)
+    ) {
       st = getRoleVisualStyle(node.role, node.grayLevel || 0, true);
     } else {
       st = roleStyle[node.role] || { fill: "#ffffff", stroke: "#64748b", text: "#334155" };
     }
+    const coordStroke = isSentence ? null : getCoordBorderStroke(node.coordGroup);
+    const strokeColor = coordStroke || st.stroke;
+    const strokeWidth = coordStroke ? "2.2" : "1.5";
 
     const labelText = node.label;
     const textWidth = calcSvgTextWidth(labelText, 11);
     const pillW = Math.max(textWidth + 28, 46);
     const pillH = 24;
 
-    svgContent += `<rect x="${nx - pillW / 2}" y="${ny - pillH / 2}" width="${pillW}" height="${pillH}" rx="${pillH / 2}" ry="${pillH / 2}" fill="${st.fill}" stroke="${st.stroke}" stroke-width="1.5" />`;
+    svgContent += `<rect x="${nx - pillW / 2}" y="${ny - pillH / 2}" width="${pillW}" height="${pillH}" rx="${pillH / 2}" ry="${pillH / 2}" fill="${st.fill}" stroke="${strokeColor}" stroke-width="${strokeWidth}" />`;
     svgContent += `<text x="${nx}" y="${ny + 4}" text-anchor="middle" font-size="11" font-weight="700" fill="${st.text}">${escapeHtml(labelText)}</text>`;
   });
 
-  // (C) チャンクの囲み枠と下部ラベルを描画（入れ子内部はチャンク単位でグレー設定、内ほど薄く外ほど濃い）
+  // (C) チャンクの囲み枠と下部ラベルを描画（背景は階層グレー/SVOC維持、並列グループは枠線色のみ統一）
   groups.forEach((grp) => {
     const st = getRoleVisualStyle(grp.role, grp.grayLevel || 0, grp.inModClause);
+    const coordStroke = getCoordBorderStroke(grp.coordGroup);
+    const strokeColor = coordStroke || st.stroke;
+    const strokeWidth = coordStroke ? "2.5" : "2";
     const x = grp.leftX - 6;
     const w = (grp.rightX - grp.leftX) + 12;
     const h = boxBottomY - boxTopY;
 
-    svgContent += `<rect x="${x}" y="${boxTopY}" width="${w}" height="${h}" rx="8" fill="${st.fill}" stroke="${st.stroke}" stroke-width="2" />`;
+    svgContent += `<rect x="${x}" y="${boxTopY}" width="${w}" height="${h}" rx="8" fill="${st.fill}" stroke="${strokeColor}" stroke-width="${strokeWidth}" />`;
 
     if (grp.role !== "Other") {
       const badgeLabel = grp.displayRole || grp.role;
@@ -2256,12 +2445,15 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
     }
   });
 
-  // (C2) 従属節・関係詞節・分詞構文・分詞句をまとめる下部アンダーブラケットを描画（外側の節ほど濃いグレー）
+  // (C2) 従属節・関係詞節・分詞構文・分詞句・並列コンテナをまとめる下部アンダーブラケットを描画
   clauseBrackets.forEach((br) => {
     if (br.subGroupIndices.length === 0) return;
     const firstGrp = groups[br.subGroupIndices[0]];
     const lastGrp = groups[br.subGroupIndices[br.subGroupIndices.length - 1]];
     const st = getRoleVisualStyle(br.role, br.grayLevel || 0, br.inModClause);
+    const coordStroke = getCoordBorderStroke(br.coordGroup);
+    const strokeColor = coordStroke || st.stroke;
+    const strokeWidth = coordStroke ? "3" : "2.5";
 
     const depth = br.depth || 1;
     const x1 = firstGrp.leftX - 6;
@@ -2270,7 +2462,7 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
     const bracketY = boxBottomY + 30 * depth;
     const legTopY = bracketY - 12;
 
-    svgContent += `<path d="M ${x1} ${legTopY} L ${x1} ${bracketY} L ${x2} ${bracketY} L ${x2} ${legTopY}" fill="none" stroke="${st.stroke}" stroke-width="2.5" stroke-linecap="round" />`;
+    svgContent += `<path d="M ${x1} ${legTopY} L ${x1} ${bracketY} L ${x2} ${bracketY} L ${x2} ${legTopY}" fill="none" stroke="${strokeColor}" stroke-width="${strokeWidth}" stroke-linecap="round" />`;
     const bText = br.label || `${br.role} (節)`;
     const bw = Math.max(calcSvgTextWidth(bText, 11) + 24, 58);
     const bh = 22;

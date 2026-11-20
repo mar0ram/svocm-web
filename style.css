@@ -384,6 +384,18 @@ textarea:focus {
   border-color: #334155;
 }
 
+/* 並列述部・並列節をまとめるコンテナ枠（階層ごとのグレースケールを適用） */
+.coord-block-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 2px solid #94a3b8;
+  background-color: #f1f5f9;
+}
+
 .chunk-text {
   font-size: 1.1rem;
   font-weight: 600;
@@ -437,7 +449,7 @@ b.role-c { background-color: #d97706; color: #fff; }
 .gray-role-強調部分 { background-color: #f5f3ff; border-color: #8b5cf6; color: #4c1d95; }
 
 /* チャンク（節）単位のグレースケール定義（入れ子の内[0:薄] → 外[3:濃]） */
-.role-M, .role-m, .role-関係詞, .m-shade-0 {
+.role-M, .role-m, .role-関係詞, .role-前置詞, .role-動名詞, .role-分詞, .role-並列述部, .role-並列節, .m-shade-0 {
   border-color: #94a3b8;
   background-color: #f1f5f9;
   color: #1e293b;
@@ -446,6 +458,19 @@ b.role-c { background-color: #d97706; color: #fff; }
 .role-M > .chunk-nested-header .chunk-role,
 .role-関係詞 > .chunk-role,
 .role-関係詞 > .chunk-nested-header .chunk-role,
+.role-前置詞 > .chunk-role,
+.role-前置詞 > .chunk-nested-header .chunk-role,
+.inline-chunk-item.role-前置詞 > .chunk-role,
+.role-動名詞 > .chunk-role,
+.role-動名詞 > .chunk-nested-header .chunk-role,
+.inline-chunk-item.role-動名詞 > .chunk-role,
+.role-分詞 > .chunk-role,
+.role-分詞 > .chunk-nested-header .chunk-role,
+.inline-chunk-item.role-分詞 > .chunk-role,
+.role-並列述部 > .chunk-role,
+.role-並列述部 > .chunk-nested-header .chunk-role,
+.role-並列節 > .chunk-role,
+.role-並列節 > .chunk-nested-header .chunk-role,
 .m-shade-0 > .chunk-role,
 .m-shade-0 > .chunk-nested-header .chunk-role,
 .inline-chunk-item.m-shade-0 > .chunk-role {
@@ -498,6 +523,49 @@ b.role-m {
 .role-Conj > .chunk-role,
 .role-Conj > .chunk-nested-header .chunk-role,
 .inline-chunk-item.role-Conj > .chunk-role { background-color: #94a3b8; color: #fff; }
+
+/* 等位接続グループ (coord_group) 用の明るめで見やすい枠線カラー（背景色・バッジ色は維持し枠線のみ統一） */
+.chunk-box.coord-border,
+.inline-chunk-item.coord-border,
+.mod-clause-group.coord-border,
+.coord-block-group.coord-border {
+  border-width: 2.5px;
+}
+
+.chunk-box.coord-border.coord-border-1,
+.inline-chunk-item.coord-border.coord-border-1,
+.mod-clause-group.coord-border.coord-border-1,
+.coord-block-group.coord-border.coord-border-1 {
+  border-color: #06b6d4;
+}
+
+.chunk-box.coord-border.coord-border-2,
+.inline-chunk-item.coord-border.coord-border-2,
+.mod-clause-group.coord-border.coord-border-2,
+.coord-block-group.coord-border.coord-border-2 {
+  border-color: #ec4899;
+}
+
+.chunk-box.coord-border.coord-border-3,
+.inline-chunk-item.coord-border.coord-border-3,
+.mod-clause-group.coord-border.coord-border-3,
+.coord-block-group.coord-border.coord-border-3 {
+  border-color: #6366f1;
+}
+
+.chunk-box.coord-border.coord-border-4,
+.inline-chunk-item.coord-border.coord-border-4,
+.mod-clause-group.coord-border.coord-border-4,
+.coord-block-group.coord-border.coord-border-4 {
+  border-color: #f97316;
+}
+
+.chunk-box.coord-border.coord-border-5,
+.inline-chunk-item.coord-border.coord-border-5,
+.mod-clause-group.coord-border.coord-border-5,
+.coord-block-group.coord-border.coord-border-5 {
+  border-color: #65a30d;
+}
 
 .legend {
   display: flex;
