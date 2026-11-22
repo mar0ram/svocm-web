@@ -299,7 +299,7 @@ async function checkEnglishSpelling(text) {
     }
 
     // 4. オンライン辞書APIによるチェック対象（固有名詞の可能性がある先頭大文字語以外の3文字以上の単語）
-    if (lower.length >= 3 && (raw === lower || text.trim().startsWith(raw))) {
+    if (lower.length >= 3 && raw === lower) {
       candidatesForApi.push(raw);
     }
   }
@@ -430,6 +430,13 @@ function isCoordContainerRole(role) {
   return role === "並列述部" || role === "並列節";
 }
 
+// ロール文字列をCSSクラス名として安全な形式に正規化するヘルパー
+function getSafeRoleClassName(role) {
+  const str = String(role || "").trim();
+  if (str === "C / M") return "C";
+  return str.replace(/[+\s/]+/g, "");
+}
+
 // 等位接続グループ (coord_group) 用の落ち着いた枠線カラークラスを返すヘルパー
 function getCoordBorderClass(coordGroup) {
   if (typeof coordGroup !== "number" || coordGroup <= 0) return "";
@@ -513,18 +520,72 @@ const RELATIVE_WORD_REGEX = /^(who|whom|whose|which|that|where|when|why|what|wha
 const PREP_RELATIVE_REGEX = /^(in|on|at|to|for|from|with|by|of|about|through|under|over|between|among|into|onto|upon|within|without|during|after|before|against|toward|towards)\s+(which|whom|whose)$/i;
 const FREE_REL_REGEX = /^(what|whatever|whoever|whomever|whichever|wherever|whenever|however)$/i;
 
-function isRelativeChunkText(text, isInsideRelClause, isQuestionSentence) {
+function isConjunctiveAdverbHoweverChunk(chunk, tokens) {
+  const clean = String((chunk && chunk.text) || "").trim().toLowerCase();
+  if (clean !== "however") return false;
+  if (!Array.isArray(tokens) || typeof chunk.start !== "number") return false;
+
+  const tokIdx = tokens.findIndex((t) => t.id === chunk.start);
+  if (tokIdx === -1) return false;
+
+  const tok = tokens[tokIdx];
+  if (tok.tag === "RB") return true;
+
+  const prevTok = tokIdx > 0 ? tokens[tokIdx - 1] : null;
+  const nextTok = tokIdx + 1 < tokens.length ? tokens[tokIdx + 1] : null;
+
+  const isAfterBoundary = !prevTok || /^[,;:.!?—–(]$/.test(prevTok.text);
+  const isBeforeComma = Boolean(nextTok && nextTok.text === ",");
+  const isSentenceEndConjAdv =
+    Boolean(prevTok && prevTok.text === ",") &&
+    (!nextTok || /^[.!?;:)—–]$/.test(nextTok.text));
+
+  if ((isAfterBoundary && isBeforeComma) || isSentenceEndConjAdv) {
+    return true;
+  }
+  if (prevTok && prevTok.text === ";" && nextTok && nextTok.pos !== "ADJ" && nextTok.pos !== "ADV") {
+    return true;
+  }
+  return false;
+}
+
+function isSentenceInitialQuestionOrExclamative(chunk, tokens, fullText = "") {
+  if (!chunk || typeof chunk.start !== "number" || !Array.isArray(tokens)) {
+    return false;
+  }
+  const tokIdx = tokens.findIndex((t) => t.id === chunk.start);
+  if (tokIdx === -1) return false;
+
+  const tok = tokens[tokIdx];
+  if (tok.dep === "predet") return true;
+
+  let prevIdx = tokIdx - 1;
+  while (prevIdx >= 0 && /^["“‘``(\[]$/.test(tokens[prevIdx].text)) {
+    prevIdx--;
+  }
+  const isAtSentenceStart = prevIdx < 0 || /^[.!?]$/.test(tokens[prevIdx].text);
+  if (!isAtSentenceStart) return false;
+
+  for (let i = tokIdx + 1; i < tokens.length; i++) {
+    const tText = tokens[i].text;
+    if (tText === "?" || tText === "!") return true;
+    if (tText === ".") return false;
+  }
+  const trimmed = String(fullText || "").trim();
+  return trimmed.endsWith("?") || trimmed.endsWith("!");
+}
+
+function isRelativeChunkText(text, isInsideRelClause, isQuestionOrExclamativeStart) {
   const clean = String(text || "").trim();
   if (!clean) return false;
   if (PREP_RELATIVE_REGEX.test(clean)) return true;
   if (isInsideRelClause && RELATIVE_WORD_REGEX.test(clean)) return true;
-  if (!isQuestionSentence && FREE_REL_REGEX.test(clean)) return true;
+  if (!isQuestionOrExclamativeStart && FREE_REL_REGEX.test(clean)) return true;
   return false;
 }
 
 function annotateSpecialRolesAndRelatives(chunks, tokens, fullText = "") {
   if (!Array.isArray(chunks)) return;
-  const isQuestion = String(fullText || "").trim().endsWith("?");
   const relTokenIds = new Set();
   const specialTokenLabels = {};
 
@@ -582,9 +643,18 @@ function annotateSpecialRolesAndRelatives(chunks, tokens, fullText = "") {
     });
 
     // 3. 関係詞の検出（関係詞節・非制限関係詞節・複合関係詞節の先頭関係詞）
-    const isRelContext = /関係詞/.test(parentClauseType || "");
+    const isRelContext =
+      /関係詞/.test(parentClauseType || "") && !/関係詞省略/.test(parentClauseType || "");
     chunkList.forEach((c, idx) => {
-      if (idx <= 1 && isRelativeChunkText(c.text, isRelContext, isQuestion && c.start === 0)) {
+      if (
+        idx <= 1 &&
+        !isConjunctiveAdverbHoweverChunk(c, tokens) &&
+        isRelativeChunkText(
+          c.text,
+          isRelContext,
+          isSentenceInitialQuestionOrExclamative(c, tokens, fullText)
+        )
+      ) {
         c.role = "関係詞";
         c.displayRoleLabel = "関係詞";
         delete c.clause_type;
@@ -652,6 +722,9 @@ function getChunkDisplayRoleText(chunk, includeClauseType = true) {
     return chunk.displayRoleLabel;
   }
   if (includeClauseType && chunk.clause_type) {
+    if (String(chunk.clause_type).startsWith(String(chunk.role))) {
+      return `${chunk.clause_type}`;
+    }
     return `${chunk.role} (${chunk.clause_type})`;
   }
   return `${chunk.role}`;
@@ -681,7 +754,7 @@ function appendFlattenedModifierItems(container, subChunkList, forceGrayScale, c
       container.appendChild(sep);
     }
 
-    const safeRole = String(item.role).replace("+", "");
+    const safeRole = getSafeRoleClassName(item.role);
     const hasSubs = Array.isArray(item.sub_chunks) && item.sub_chunks.length > 0;
     const hasCoordLv =
       typeof item.coord_group === "number" &&
@@ -774,7 +847,7 @@ function appendFlattenedModifierItems(container, subChunkList, forceGrayScale, c
 // チャンク要素（展開ボタン付き・本文の核となるSVOC以外は階層ごとのグレー統一・並列要素同士は同色枠線）を生成する関数
 function createChunkElement(chunk, coordGrayMap = null) {
   const div = document.createElement("div");
-  const safeRole = String(chunk.role).replace("+", "");
+  const safeRole = getSafeRoleClassName(chunk.role);
   const isMod = safeRole === "M" || safeRole === "関係詞";
   const isCoordContainer = isCoordContainerRole(chunk.role);
   const hasSubs = Array.isArray(chunk.sub_chunks) && chunk.sub_chunks.length > 0;
@@ -891,11 +964,30 @@ function joinChunkSpanText(chunkSlice, tokens) {
     const spanTokens = tokens.filter((t) => t.id >= startId && t.id <= endId);
     if (spanTokens.length > 0) {
       let text = "";
+      let inDoubleQuote = false;
       spanTokens.forEach((t, idx) => {
-        if (idx > 0 && !/^[,.;:!?)]$/.test(t.text)) {
-          text += " ";
+        const curr = t.text;
+        const prev = idx > 0 ? spanTokens[idx - 1].text : "";
+        if (idx > 0) {
+          const isClosingDoubleQuote = curr === '"' && inDoubleQuote;
+          const isAfterOpeningDoubleQuote = prev === '"' && inDoubleQuote;
+          const noSpaceBeforeCurr =
+            /^[,.;:!?)}\]”’'']$/.test(curr) ||
+            /^(n't|'s|'re|'ve|'ll|'d|'m|')$/i.test(curr) ||
+            curr === "-" ||
+            isClosingDoubleQuote;
+          const noSpaceAfterPrev =
+            /^[(\[{“‘``]$/.test(prev) ||
+            prev === "-" ||
+            isAfterOpeningDoubleQuote;
+          if (!noSpaceBeforeCurr && !noSpaceAfterPrev) {
+            text += " ";
+          }
         }
-        text += t.text;
+        text += curr;
+        if (curr === '"') {
+          inDoubleQuote = !inDoubleQuote;
+        }
       });
       return text;
     }
@@ -1487,9 +1579,7 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
     if (Array.isArray(ch.sub_chunks) && ch.sub_chunks.length > 0) {
       const isAdnominal = hasAdnominalModifierSubChunk(ch);
       const isRelMod = hasRelativeModifierSubChunk(ch);
-      const myGrayLevel = isTopLevel
-        ? currentGrayLevel
-        : (isAdnominal || isCoordContainer ? currentGrayLevel : currentGrayLevel);
+      const myGrayLevel = currentGrayLevel;
       const innerForceGray = isCoordContainer ? inModClause : (nextInMod || Boolean(ch.clause_type));
       const childCoordGrayMap = computeCoordGroupGrayMap(ch.sub_chunks, myGrayLevel);
 
@@ -1529,7 +1619,7 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
         const bLabel = ch.displayRoleLabel
           ? ch.displayRoleLabel
           : (isCoordContainer
-            ? ch.role
+            ? (ch.clause_type || ch.role)
             : (ch.clause_type ? `${ch.role} (${ch.clause_type})` : `${ch.role} (節)`));
         clauseBrackets.push({
           role: ch.role,
@@ -1558,10 +1648,10 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
       const matched = validTokens.filter((t) => t.id >= ch.start && t.id <= ch.end);
       if (matched.length === 0) return null;
       const gIdx = groups.length;
-      const leafGrayLevel = isTopLevel && isMod ? currentGrayLevel : currentGrayLevel;
+      const leafGrayLevel = currentGrayLevel;
       const dispRole = isAntecedent
         ? (isTopLevel ? "先行詞" : `${ch.role} (先行詞)`)
-        : (ch.displayRoleLabel || ch.role);
+        : getChunkDisplayRoleText(ch, true);
 
       groups.push({
         role: ch.role,
@@ -2165,11 +2255,20 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
     const isVerbalRole = (r) => r === "V" || r === "動名詞" || r === "分詞";
     const vIdx = nodesSlice.findIndex((n) => isVerbalRole(n.chunkRole));
     if (vIdx === -1) {
+      const allParallelClauses = nodesSlice.every((n) => n.chunkRole === "並列節");
       let cur = nodesSlice[0];
       for (let i = 1; i < nodesSlice.length; i++) {
         const isTop = isTopSentence && i === nodesSlice.length - 1;
-        const lbl = (cur.chunkRole === "S" && nodesSlice[i].chunkRole === "C") ? "S + C" : (isTop ? "文 (Sentence)" : "句");
-        cur = mergeTwoNodes(cur, nodesSlice[i], lbl, isTop ? "Sentence" : "Phrase", inModClause, grayLevel);
+        let lbl;
+        let mRole;
+        if (allParallelClauses) {
+          lbl = isTop ? "文 (重文)" : "節 + 節";
+          mRole = isTop ? "Sentence" : "VP";
+        } else {
+          lbl = (cur.chunkRole === "S" && nodesSlice[i].chunkRole === "C") ? "S + C" : (isTop ? "文 (Sentence)" : "句");
+          mRole = isTop ? "Sentence" : "Phrase";
+        }
+        cur = mergeTwoNodes(cur, nodesSlice[i], lbl, mRole, inModClause, grayLevel);
       }
       return cur;
     }
@@ -2323,8 +2422,8 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
     const nodeLabel = item.displayRoleLabel
       ? item.displayRoleLabel
       : (isCoordContainerRole(item.role)
-        ? item.role
-        : (item.clauseType ? `${item.role} (${item.clause_type || item.clauseType})` : item.role));
+        ? (item.clauseType || item.role)
+        : (item.clauseType ? `${item.role} (${item.clauseType})` : item.role));
     const allChildTokens = [];
     childNodes.forEach((cn) => {
       if (Array.isArray(cn.tokens)) allChildTokens.push(...cn.tokens);
