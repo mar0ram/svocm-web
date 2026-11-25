@@ -1036,11 +1036,23 @@ function collapseCoordinatedArgChunks(chunkList, tokens, isTopLevel = false) {
 
     const role = chunkList[firstRoleIdx].role;
     if (role === "S" || role === "O" || role === "C" || role === "C / M" || role === "M") {
+      const precededByNotSoMuch =
+        !hasLeadPreconj &&
+        firstRoleIdx > 0 &&
+        chunkList[firstRoleIdx - 1].role === "Conj" &&
+        /^not\s+so\s+much$/i.test(String(chunkList[firstRoleIdx - 1].text || "").trim());
       const baseKey = getSpecialRoleKey(chunkList[firstRoleIdx]);
       let j = firstRoleIdx + 1;
       let hasConj = false;
 
       while (j < chunkList.length) {
+        if (
+          precededByNotSoMuch &&
+          chunkList[j].role === "Conj" &&
+          /^as$/i.test(String(chunkList[j].text || "").trim())
+        ) {
+          break;
+        }
         if (
           chunkList[j].role === "Conj" &&
           j + 1 < chunkList.length &&
@@ -1058,6 +1070,13 @@ function collapseCoordinatedArgChunks(chunkList, tokens, isTopLevel = false) {
           let k = j + 1;
           let conjAhead = false;
           while (k < chunkList.length) {
+            if (
+              precededByNotSoMuch &&
+              chunkList[k].role === "Conj" &&
+              /^as$/i.test(String(chunkList[k].text || "").trim())
+            ) {
+              break;
+            }
             if (
               chunkList[k].role === "Conj" &&
               k + 1 < chunkList.length &&
