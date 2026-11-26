@@ -1181,29 +1181,28 @@ function collapseCoordinatedArgChunks(chunkList, tokens, isTopLevel = false) {
 
     const role = chunkList[firstRoleIdx].role;
     if (role === "S" || role === "O" || role === "C" || role === "C / M" || role === "M") {
-      const prevConjText =
-        !hasLeadPreconj && firstRoleIdx > 0 && chunkList[firstRoleIdx - 1].role === "Conj"
-          ? String(chunkList[firstRoleIdx - 1].text || "").trim()
+      const prevChunk = !hasLeadPreconj && firstRoleIdx > 0 ? chunkList[firstRoleIdx - 1] : null;
+      const prevLeadText =
+        prevChunk && (prevChunk.role === "Conj" || prevChunk.role === "M")
+          ? String(prevChunk.text || "").trim()
           : "";
-      const precededByNotSoMuch = /^not\s+so\s+much$/i.test(prevConjText);
-      const precededByNotOnly = NOT_ONLY_LEAD_REGEX.test(prevConjText);
+      const precededByNotSoMuch =
+        Boolean(prevChunk && prevChunk.role === "Conj") && /^not\s+so\s+much$/i.test(prevLeadText);
+      const precededByNotOnly = NOT_ONLY_LEAD_REGEX.test(prevLeadText);
+      const isFlatCorrelativeConj = (chunk) => {
+        if (!chunk || chunk.role !== "Conj") return false;
+        const txt = String(chunk.text || "").trim();
+        if (precededByNotSoMuch && /^as$/i.test(txt)) return true;
+        if (/^but\s+also$/i.test(txt) || /^as\s+well\s+as$/i.test(txt)) return true;
+        if (precededByNotOnly && /^but$/i.test(txt)) return true;
+        return false;
+      };
       const baseKey = getSpecialRoleKey(chunkList[firstRoleIdx]);
       let j = firstRoleIdx + 1;
       let hasConj = false;
 
       while (j < chunkList.length) {
-        if (
-          precededByNotSoMuch &&
-          chunkList[j].role === "Conj" &&
-          /^as$/i.test(String(chunkList[j].text || "").trim())
-        ) {
-          break;
-        }
-        if (
-          precededByNotOnly &&
-          chunkList[j].role === "Conj" &&
-          /^but(\s+also)?$/i.test(String(chunkList[j].text || "").trim())
-        ) {
+        if (isFlatCorrelativeConj(chunkList[j])) {
           break;
         }
         if (
@@ -1223,18 +1222,7 @@ function collapseCoordinatedArgChunks(chunkList, tokens, isTopLevel = false) {
           let k = j + 1;
           let conjAhead = false;
           while (k < chunkList.length) {
-            if (
-              precededByNotSoMuch &&
-              chunkList[k].role === "Conj" &&
-              /^as$/i.test(String(chunkList[k].text || "").trim())
-            ) {
-              break;
-            }
-            if (
-              precededByNotOnly &&
-              chunkList[k].role === "Conj" &&
-              /^but(\s+also)?$/i.test(String(chunkList[k].text || "").trim())
-            ) {
+            if (isFlatCorrelativeConj(chunkList[k])) {
               break;
             }
             if (
@@ -1451,6 +1439,25 @@ function buildDisplayChunksHierarchy(rawChunkList, tokens, isTopLevel = false) {
       .slice(firstVIdx + 1, lastVIdx)
       .some((c) => c.role === "Conj");
 
+    const hasFlatCorrelativeVerbConj = collapsedList
+      .slice(firstVIdx + 1, lastVIdx)
+      .some((c) => {
+        if (c.role !== "Conj") return false;
+        const txt = String(c.text || "").trim();
+        if (/^but\s+also$/i.test(txt) || /^as\s+well\s+as$/i.test(txt)) {
+          return true;
+        }
+        if (
+          /^but$/i.test(txt) &&
+          firstVIdx > 0 &&
+          (collapsedList[firstVIdx - 1].role === "M" || collapsedList[firstVIdx - 1].role === "Conj") &&
+          NOT_ONLY_LEAD_REGEX.test(String(collapsedList[firstVIdx - 1].text || "").trim())
+        ) {
+          return true;
+        }
+        return false;
+      });
+
     // 4-A. 動詞単体の並列＋共通の目的語/補語（例: He [bought, cooked, and ate] the fish.）
     const onlyVerbsAndConjBetween = collapsedList
       .slice(firstVIdx, lastVIdx + 1)
@@ -1459,7 +1466,13 @@ function buildDisplayChunksHierarchy(rawChunkList, tokens, isTopLevel = false) {
       .slice(lastVIdx + 1)
       .some((c) => c.role === "O" || c.role === "C" || c.role === "M");
 
-    if (!hasSubjBetweenFirstTwoV && hasConjBetweenVerbs && onlyVerbsAndConjBetween && hasSharedArgsAfterLastV) {
+    if (
+      !hasSubjBetweenFirstTwoV &&
+      hasConjBetweenVerbs &&
+      !hasFlatCorrelativeVerbConj &&
+      onlyVerbsAndConjBetween &&
+      hasSharedArgsAfterLastV
+    ) {
       let vSpanStart = firstVIdx;
       if (
         vSpanStart > 0 &&
@@ -1485,7 +1498,7 @@ function buildDisplayChunksHierarchy(rawChunkList, tokens, isTopLevel = false) {
     }
 
     // 4-B. 並列動詞句（VP1, VP2, and VP3：例 Acquire knowledge, process information, and make decisions）の入れ子化
-    if (!hasSubjBetweenFirstTwoV && hasConjBetweenVerbs) {
+    if (!hasSubjBetweenFirstTwoV && hasConjBetweenVerbs && !hasFlatCorrelativeVerbConj) {
       let vpSpanStart = firstVIdx;
       if (
         vpSpanStart > 0 &&
@@ -2080,9 +2093,9 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
     return tokens.some((t) => t.id > prevEndId && t.id < nextStartId && /^[,;]$/.test(t.text));
   }
 
-  // 同じ役割の並列チャンク列（A, B, and C や both A and B：S/O/C/M/並列述部/並列節の並列）を先に1つの並列ノードへ束ねるヘルパー
+  // 同じ役割の並列チャンク列（A, B, and C や both A and B：S/O/C/M/強調部分/並列述部/並列節の並列）を先に1つの並列ノードへ束ねるヘルパー
   function collapseCoordinatedArgRuns(nodesList, inModClause = false, grayLevel = 0) {
-    const coordTargetRoles = ["S", "O", "C", "C / M", "M", "並列述部", "並列節"];
+    const coordTargetRoles = ["S", "O", "C", "C / M", "M", "強調部分", "並列述部", "並列節"];
     const result = [];
     let i = 0;
     while (i < nodesList.length) {
@@ -2093,8 +2106,10 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
         : (nodesList[i].label || "");
 
       if (
-        nodesList[i].chunkRole === "Conj" &&
-        CORRELATIVE_LEAD_REGEX.test(String(leadText).trim()) &&
+        (
+          (nodesList[i].chunkRole === "Conj" && CORRELATIVE_LEAD_REGEX.test(String(leadText).trim())) ||
+          (nodesList[i].chunkRole === "M" && NOT_ONLY_LEAD_REGEX.test(String(leadText).trim()))
+        ) &&
         i + 1 < nodesList.length &&
         coordTargetRoles.includes(nodesList[i + 1].chunkRole)
       ) {
@@ -2175,10 +2190,12 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
           const mergedItems = [];
           let m = 0;
           while (m < seq.length) {
-            if (seq[m].chunkRole === "Conj" && m + 1 < seq.length) {
+            const isLeadNotOnlyMod = m === 0 && hasLeadPreconj && seq[0].chunkRole === "M";
+            if ((seq[m].chunkRole === "Conj" || isLeadNotOnlyMod) && m + 1 < seq.length) {
+              const leadPrefix = isLeadNotOnlyMod ? "M" : "Conj";
               const stepLbl = isCoordVp
-                ? "Conj + VP"
-                : (isCoordClause ? "Conj + 節" : `Conj + ${role}`);
+                ? `${leadPrefix} + VP`
+                : (isCoordClause ? `${leadPrefix} + 節` : `${leadPrefix} + ${role}`);
               const cRight = mergeTwoNodes(seq[m], seq[m + 1], stepLbl, mergedRoleKey, inModClause, grayLevel);
               cRight.chunkRole = role;
               mergedItems.push(cRight);
@@ -2402,11 +2419,17 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
       } else if (!hasSubjBetweenFirstTwoV && !isPhrasalVerbSplit && hasConjBetweenVerbs) {
         // 2-B. 並列動詞句（VP1, VP2, and VP3：例 Acquire knowledge, process information, and make decisions）の分割・結合
         let vpSpanStart = firstVIdx;
-        if (vpSpanStart > 0 && nodesSlice[vpSpanStart - 1].chunkRole === "Conj") {
+        if (
+          vpSpanStart > 0 &&
+          (nodesSlice[vpSpanStart - 1].chunkRole === "Conj" || nodesSlice[vpSpanStart - 1].chunkRole === "M")
+        ) {
           const prevTxt = nodesSlice[vpSpanStart - 1].tokens
             ? nodesSlice[vpSpanStart - 1].tokens.map((t) => t.text).join(" ")
             : "";
-          if (CORRELATIVE_LEAD_REGEX.test(String(prevTxt).trim())) {
+          if (
+            (nodesSlice[vpSpanStart - 1].chunkRole === "Conj" && CORRELATIVE_LEAD_REGEX.test(String(prevTxt).trim())) ||
+            (nodesSlice[vpSpanStart - 1].chunkRole === "M" && NOT_ONLY_LEAD_REGEX.test(String(prevTxt).trim()))
+          ) {
             vpSpanStart -= 1;
           }
         }
@@ -2451,7 +2474,8 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
           const singleVpNodes = nodesSlice.slice(startIdx, vEnd);
           const vpTree = buildClauseTreeFromNodes(singleVpNodes, false, inModClause, grayLevel);
           if (conjIdx !== -1) {
-            vpSegments.push(mergeTwoNodes(nodesSlice[conjIdx], vpTree, "Conj + VP", "VP", inModClause, grayLevel));
+            const leadLbl = nodesSlice[conjIdx].chunkRole === "M" ? "M + VP" : "Conj + VP";
+            vpSegments.push(mergeTwoNodes(nodesSlice[conjIdx], vpTree, leadLbl, "VP", inModClause, grayLevel));
           } else {
             vpSegments.push(vpTree);
           }
