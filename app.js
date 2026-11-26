@@ -159,15 +159,47 @@ async function wakeUpServer() {
 }
 
 // 2. パスワード認証モーダルの処理
-loginBtn.addEventListener("click", () => {
+loginBtn.addEventListener("click", async () => {
   const pwd = passwordInput.value.trim();
   if (!pwd) {
+    authError.textContent = "パスワードを入力してください。";
     authError.classList.remove("hidden");
     return;
   }
-  sessionStorage.setItem("svocm_api_token", pwd);
+
+  loginBtn.disabled = true;
   authError.classList.add("hidden");
-  authModal.classList.add("hidden");
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/auth/verify`, {
+      method: "GET",
+      headers: {
+        "Authorization": `Bearer ${pwd}`
+      }
+    });
+
+    if (response.status === 401 || response.status === 403) {
+      sessionStorage.removeItem("svocm_api_token");
+      authError.textContent = "パスワードが正しくありません。";
+      authError.classList.remove("hidden");
+      return;
+    }
+
+    if (!response.ok) {
+      throw new Error(`Status error: ${response.status}`);
+    }
+
+    sessionStorage.setItem("svocm_api_token", pwd);
+    authError.classList.add("hidden");
+    authModal.classList.add("hidden");
+    serverStatus.className = "status-badge online";
+    statusText.textContent = "サーバー準備完了";
+  } catch (err) {
+    authError.textContent = "サーバーに接続できませんでした。起動完了後に再度お試しください。";
+    authError.classList.remove("hidden");
+  } finally {
+    loginBtn.disabled = false;
+  }
 });
 
 passwordInput.addEventListener("keydown", (e) => {
@@ -250,6 +282,19 @@ tabBtns.forEach((btn) => {
   });
 });
 
+// 英語入力時の全角スペース・全角英数記号・スマートクォートを自動正規化
+function normalizeEnglishInput(text) {
+  return String(text || "")
+    .replace(/\u3000/g, " ")
+    .replace(/[‘’′]/g, "'")
+    .replace(/[“”″]/g, '"')
+    .replace(/[\uFF01-\uFF5E]/g, (ch) =>
+      String.fromCharCode(ch.charCodeAt(0) - 0xFEE0)
+    )
+    .replace(/[ \t]+/g, " ")
+    .trim();
+}
+
 // ① 入力言語のバリデーション（英語モードは英語のみ、日本語モードは日本語のみ）
 function validateLanguageInput(text, mode) {
   const hasJaChars = /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF\u3400-\u4DBF\u3000-\u303F\uFF01-\uFF60]/.test(text);
@@ -267,6 +312,35 @@ function validateLanguageInput(text, mode) {
   }
   return null;
 }
+
+// スペルチェック外部通信の削減用（高頻度基本語セット＋セッション内キャッシュ）
+const COMMON_VALID_WORDS = new Set([
+  "the", "and", "for", "that", "with", "this", "from", "have", "has", "had",
+  "are", "was", "were", "been", "being", "not", "but", "you", "your", "they",
+  "them", "their", "she", "her", "him", "his", "its", "our", "who", "whom",
+  "whose", "which", "what", "when", "where", "why", "how", "will", "would",
+  "can", "could", "shall", "should", "may", "might", "must", "did", "does",
+  "done", "doing", "all", "any", "some", "many", "much", "more", "most",
+  "few", "little", "other", "another", "such", "only", "just", "also", "very",
+  "too", "even", "still", "yet", "now", "then", "here", "there", "than",
+  "about", "into", "over", "after", "before", "under", "between", "through",
+  "during", "without", "within", "against", "among", "around", "because",
+  "although", "though", "while", "since", "until", "unless", "whether",
+  "both", "either", "neither", "nor", "each", "every", "one", "two", "three",
+  "make", "made", "take", "took", "taken", "give", "gave", "given", "get",
+  "got", "see", "saw", "seen", "know", "knew", "known", "think", "thought",
+  "come", "came", "want", "use", "used", "find", "found", "tell", "told",
+  "ask", "asked", "work", "seem", "feel", "felt", "try", "tried", "leave",
+  "left", "call", "keep", "kept", "let", "put", "say", "said", "people",
+  "time", "year", "way", "day", "man", "thing", "woman", "life", "child",
+  "world", "school", "state", "family", "student", "group", "country",
+  "problem", "hand", "part", "place", "case", "week", "company", "system",
+  "good", "new", "first", "last", "long", "great", "own", "old", "right",
+  "big", "high", "different", "small", "large", "next", "early", "young",
+  "important", "public", "bad", "same", "able", "hard", "easy", "difficult"
+]);
+
+const SPELLING_API_CACHE = new Map();
 
 // ② 英語スペルミス検査（ローカル辞書＋綴り字ルール＋Datamuse辞書API照会）
 async function checkEnglishSpelling(text) {
@@ -299,19 +373,32 @@ async function checkEnglishSpelling(text) {
       continue;
     }
 
-    // 4. オンライン辞書APIによるチェック対象（固有名詞の可能性がある先頭大文字語以外の3文字以上の単語）
+    // 4. 高頻度基本語およびキャッシュ済みの単語は外部API照会を省略
+    if (COMMON_VALID_WORDS.has(lower)) {
+      continue;
+    }
+    if (SPELLING_API_CACHE.has(lower)) {
+      const cached = SPELLING_API_CACHE.get(lower);
+      if (cached) {
+        findings.push(cached);
+      }
+      continue;
+    }
+
+    // 5. オンライン辞書APIによるチェック対象（固有名詞の可能性がある先頭大文字語以外の3文字以上の単語）
     if (lower.length >= 3 && raw === lower) {
       candidatesForApi.push(raw);
     }
   }
 
-  // Datamuse APIでスペル実在確認（タイムアウト1.5秒）
+  // Datamuse APIでスペル実在確認（最大10語・候補取得は最大3語・タイムアウト1.5秒）
   if (candidatesForApi.length > 0) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 1500);
+    let sugRequestCount = 0;
     try {
       await Promise.all(
-        candidatesForApi.slice(0, 20).map(async (word) => {
+        candidatesForApi.slice(0, 10).map(async (word) => {
           const low = word.toLowerCase();
           const res = await fetch(`https://api.datamuse.com/words?sp=${encodeURIComponent(low)}&max=5`, {
             signal: controller.signal
@@ -319,21 +406,28 @@ async function checkEnglishSpelling(text) {
           if (!res.ok) return;
           const list = await res.json();
           const exactMatch = Array.isArray(list) && list.some((item) => item.word && item.word.toLowerCase() === low);
-          if (!exactMatch) {
-            const sugRes = await fetch(`https://api.datamuse.com/sug?s=${encodeURIComponent(low)}&max=3`, {
-              signal: controller.signal
-            });
+          if (exactMatch) {
+            SPELLING_API_CACHE.set(low, null);
+          } else {
             let suggestionText = "";
-            if (sugRes.ok) {
-              const sugList = await sugRes.json();
-              if (Array.isArray(sugList) && sugList.length > 0) {
-                const topSug = sugList[0].word;
-                if (topSug && topSug.toLowerCase() !== low) {
-                  suggestionText = `（候補: ${topSug}）`;
+            if (sugRequestCount < 3) {
+              sugRequestCount += 1;
+              const sugRes = await fetch(`https://api.datamuse.com/sug?s=${encodeURIComponent(low)}&max=3`, {
+                signal: controller.signal
+              });
+              if (sugRes.ok) {
+                const sugList = await sugRes.json();
+                if (Array.isArray(sugList) && sugList.length > 0) {
+                  const topSug = sugList[0].word;
+                  if (topSug && topSug.toLowerCase() !== low) {
+                    suggestionText = `（候補: ${topSug}）`;
+                  }
                 }
               }
             }
-            findings.push(`"${word}"${suggestionText}`);
+            const entry = `"${word}"${suggestionText}`;
+            SPELLING_API_CACHE.set(low, entry);
+            findings.push(entry);
           }
         })
       );
@@ -349,7 +443,8 @@ async function checkEnglishSpelling(text) {
 
 // 4. 分析リクエストの送信
 analyzeBtn.addEventListener("click", async () => {
-  const text = inputText.value.trim();
+  const rawText = inputText.value.trim();
+  const text = currentMode === "english" ? normalizeEnglishInput(rawText) : rawText;
   const token = sessionStorage.getItem("svocm_api_token");
 
   if (!token) {
@@ -712,8 +807,8 @@ function isRelativeChunkText(text, isInsideRelClause, isQuestionOrExclamativeSta
 
 function annotateSpecialRolesAndRelatives(chunks, tokens, fullText = "") {
   if (!Array.isArray(chunks)) return;
-  const relTokenIds = new Set();
-  const indirectQTokenIds = new Set();
+  const relTokenLabels = {};
+  const indirectQTokenLabels = {};
   const specialTokenLabels = {};
 
   function processChunkList(chunkList, parentClauseType = "") {
@@ -721,7 +816,28 @@ function annotateSpecialRolesAndRelatives(chunks, tokens, fullText = "") {
 
     // 1. 形式主語 (It) と 真主語 の検出
     const sChunks = chunkList.filter((c) => c.role === "S");
-    if (sChunks.length >= 2 && String(sChunks[0].text || "").trim().toLowerCase() === "it") {
+    const hasExplicitFormalS = sChunks.some(
+      (c) =>
+        c.clause_type === "形式主語" ||
+        (c.clause_type && c.clause_type.includes("真主語"))
+    );
+    const hasTrueSubjClauseType = sChunks
+      .slice(1)
+      .some(
+        (c) =>
+          c.clause_type &&
+          /真主語|不定詞|動名詞|名詞節|節/.test(c.clause_type)
+      );
+    const isCoordinatedItS =
+      sChunks.length >= 2 &&
+      typeof sChunks[0].coord_group === "number" &&
+      sChunks[0].coord_group === sChunks[1].coord_group;
+    if (
+      sChunks.length >= 2 &&
+      String(sChunks[0].text || "").trim().toLowerCase() === "it" &&
+      !isCoordinatedItS &&
+      (hasExplicitFormalS || hasTrueSubjClauseType)
+    ) {
       sChunks[0].displayRoleLabel = "S (形式主語)";
       sChunks[0].clause_type = "形式主語";
       for (let idx = sChunks[0].start; idx <= sChunks[0].end; idx++) {
@@ -738,11 +854,28 @@ function annotateSpecialRolesAndRelatives(chunks, tokens, fullText = "") {
 
     // 2. 形式目的語 (it) と 真目的語 の検出
     const oChunks = chunkList.filter((c) => c.role === "O");
-    const hasC = chunkList.some((c) => c.role === "C");
+    const hasC = chunkList.some((c) => c.role === "C" || c.role === "C / M");
+    const hasExplicitFormalO = oChunks.some(
+      (c) =>
+        c.clause_type === "形式目的語" ||
+        (c.clause_type && c.clause_type.includes("真目的語"))
+    );
+    const hasTrueObjClauseType = oChunks
+      .slice(1)
+      .some(
+        (c) =>
+          c.clause_type &&
+          /真目的語|不定詞|動名詞|名詞節|節/.test(c.clause_type)
+      );
+    const isCoordinatedItO =
+      oChunks.length >= 2 &&
+      typeof oChunks[0].coord_group === "number" &&
+      oChunks[0].coord_group === oChunks[1].coord_group;
     if (
       oChunks.length >= 2 &&
       String(oChunks[0].text || "").trim().toLowerCase() === "it" &&
-      (hasC || oChunks[1].clause_type || Array.isArray(oChunks[1].sub_chunks))
+      !isCoordinatedItO &&
+      (hasExplicitFormalO || (hasC && hasTrueObjClauseType))
     ) {
       oChunks[0].displayRoleLabel = "O (形式目的語)";
       oChunks[0].clause_type = "形式目的語";
@@ -758,14 +891,30 @@ function annotateSpecialRolesAndRelatives(chunks, tokens, fullText = "") {
       }
     }
 
-    // 既存の clause_type に「真主語」「真目的語」が含まれている場合の統一
+    // 既存の clause_type に「形式主語」「真主語」「形式目的語」「真目的語」が含まれている場合の統一
     chunkList.forEach((c) => {
-      if (c.clause_type && c.clause_type.includes("真主語")) {
+      if (c.clause_type === "形式主語") {
+        c.displayRoleLabel = "S (形式主語)";
+        for (let idx = c.start; idx <= c.end; idx++) {
+          specialTokenLabels[idx] = "S (形式主語)";
+        }
+      } else if (c.clause_type && c.clause_type.includes("真主語")) {
         c.displayRoleLabel = "S (真主語)";
         c.clause_type = "真主語";
+        for (let idx = c.start; idx <= c.end; idx++) {
+          specialTokenLabels[idx] = "S (真主語)";
+        }
+      } else if (c.clause_type === "形式目的語") {
+        c.displayRoleLabel = "O (形式目的語)";
+        for (let idx = c.start; idx <= c.end; idx++) {
+          specialTokenLabels[idx] = "O (形式目的語)";
+        }
       } else if (c.clause_type && c.clause_type.includes("真目的語")) {
         c.displayRoleLabel = "O (真目的語)";
         c.clause_type = "真目的語";
+        for (let idx = c.start; idx <= c.end; idx++) {
+          specialTokenLabels[idx] = "O (真目的語)";
+        }
       }
     });
 
@@ -774,17 +923,20 @@ function annotateSpecialRolesAndRelatives(chunks, tokens, fullText = "") {
       /関係詞/.test(parentClauseType || "") && !/関係詞省略/.test(parentClauseType || "");
     chunkList.forEach((c, idx) => {
       const isQOrExcl = isSentenceInitialQuestionOrExclamative(c, tokens, fullText);
+      const origRole = String(c.role || "").trim();
+      const caseSuffix = ["S", "O", "C"].includes(origRole) ? ` (${origRole})` : "";
       if (
         idx <= 1 &&
         !isConjunctiveAdverbHoweverChunk(c, tokens) &&
         isIndirectQuestionWhatChunk(c, tokens, isRelContext, isQOrExcl)
       ) {
+        const iqLabel = `間接疑問${caseSuffix}`;
         c.role = "間接疑問";
-        c.displayRoleLabel = "間接疑問";
+        c.displayRoleLabel = iqLabel;
         delete c.clause_type;
         if (typeof c.start === "number" && typeof c.end === "number") {
           for (let ti = c.start; ti <= c.end; ti++) {
-            indirectQTokenIds.add(ti);
+            indirectQTokenLabels[ti] = iqLabel;
           }
         }
       } else if (
@@ -792,12 +944,13 @@ function annotateSpecialRolesAndRelatives(chunks, tokens, fullText = "") {
         !isConjunctiveAdverbHoweverChunk(c, tokens) &&
         isRelativeChunkText(c.text, isRelContext, isQOrExcl)
       ) {
+        const relLabel = `関係詞${caseSuffix}`;
         c.role = "関係詞";
-        c.displayRoleLabel = "関係詞";
+        c.displayRoleLabel = relLabel;
         delete c.clause_type;
         if (typeof c.start === "number" && typeof c.end === "number") {
           for (let ti = c.start; ti <= c.end; ti++) {
-            relTokenIds.add(ti);
+            relTokenLabels[ti] = relLabel;
           }
         }
       }
@@ -813,10 +966,10 @@ function annotateSpecialRolesAndRelatives(chunks, tokens, fullText = "") {
   // トークン一覧データ側にも間接疑問・関係詞・形式主語/真主語/形式目的語/真目的語を反映
   if (Array.isArray(tokens)) {
     tokens.forEach((t) => {
-      if (indirectQTokenIds.has(t.id)) {
-        t.svocm = "間接疑問";
-      } else if (relTokenIds.has(t.id)) {
-        t.svocm = "関係詞";
+      if (indirectQTokenLabels[t.id]) {
+        t.svocm = indirectQTokenLabels[t.id];
+      } else if (relTokenLabels[t.id]) {
+        t.svocm = relTokenLabels[t.id];
       } else if (specialTokenLabels[t.id]) {
         t.svocm = specialTokenLabels[t.id];
       }
