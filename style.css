@@ -500,7 +500,7 @@ b.role-c { background-color: #d97706; color: #fff; }
 .gray-role-強調部分 { background-color: #f5f3ff; border-color: #8b5cf6; color: #4c1d95; }
 
 /* チャンク（節）単位のグレースケール定義（入れ子の内[0:薄] → 外[3:濃]） */
-.role-M, .role-m, .role-関係詞, .role-前置詞, .role-動名詞, .role-分詞, .role-並列述部, .role-並列節, .m-shade-0 {
+.role-M, .role-m, .role-関係詞, .role-間接疑問, .role-前置詞, .role-動名詞, .role-分詞, .role-並列述部, .role-並列節, .m-shade-0 {
   border-color: #94a3b8;
   background-color: #f1f5f9;
   color: #1e293b;
@@ -509,6 +509,9 @@ b.role-c { background-color: #d97706; color: #fff; }
 .role-M > .chunk-nested-header .chunk-role,
 .role-関係詞 > .chunk-role,
 .role-関係詞 > .chunk-nested-header .chunk-role,
+.role-間接疑問 > .chunk-role,
+.role-間接疑問 > .chunk-nested-header .chunk-role,
+.inline-chunk-item.role-間接疑問 > .chunk-role,
 .role-前置詞 > .chunk-role,
 .role-前置詞 > .chunk-nested-header .chunk-role,
 .inline-chunk-item.role-前置詞 > .chunk-role,
