@@ -33,6 +33,7 @@ const warningBox = document.getElementById("warning-box");
 const loadingBox = document.getElementById("loading");
 const enResult = document.getElementById("en-result");
 const jaResult = document.getElementById("ja-result");
+const interpretationTabs = document.getElementById("en-interpretation-tabs");
 
 // 頻出英単語スペルミス辞書
 const COMMON_MISSPELLINGS = {
@@ -1421,15 +1422,18 @@ function buildDisplayChunksHierarchy(rawChunkList, tokens, isTopLevel = false) {
   return collapsedList;
 }
 
-// 5. 英文分析結果の描画
-function renderEnglishResult(data) {
-  document.getElementById("en-pattern").textContent = data.pattern;
+// 5. 英文分析結果の描画（単一解釈の描画と、両義ケースのタブ切り替え）
+function renderEnglishInterpretation(viewData, fullText) {
+  const clonedChunks = JSON.parse(JSON.stringify(viewData.chunks || []));
+  const clonedTokens = JSON.parse(JSON.stringify(viewData.tokens || []));
+
+  document.getElementById("en-pattern").textContent = viewData.pattern;
 
   // ⑤ 形式主語・真主語・形式目的語・真目的語の()付き表記および関係詞表記の適用
-  annotateSpecialRolesAndRelatives(data.chunks, data.tokens, data.text);
+  annotateSpecialRolesAndRelatives(clonedChunks, clonedTokens, fullText);
 
   // チャンクの描画（並列動詞句・並列句も入れ子構造に変換し、本文の核となるSVOC以外は階層ごとのグレーで表示）
-  const displayChunks = buildDisplayChunksHierarchy(data.chunks, data.tokens, true);
+  const displayChunks = buildDisplayChunksHierarchy(clonedChunks, clonedTokens, true);
   const topCoordGrayMap = computeCoordGroupGrayMap(displayChunks, 2);
   const chunksContainer = document.getElementById("en-chunks");
   chunksContainer.innerHTML = "";
@@ -1441,7 +1445,7 @@ function renderEnglishResult(data) {
   const grammarBody = document.getElementById("en-grammar-check-body");
   if (grammarBody) {
     grammarBody.innerHTML = "";
-    const checkList = Array.isArray(data.grammar_check) ? data.grammar_check : [];
+    const checkList = Array.isArray(viewData.grammar_check) ? viewData.grammar_check : [];
     checkList.forEach((row) => {
       const tr = document.createElement("tr");
       tr.className = row.detected ? "grammar-row-active" : "grammar-row-inactive";
@@ -1461,7 +1465,7 @@ function renderEnglishResult(data) {
   // トークン一覧テーブルの描画
   const tbody = document.getElementById("en-tokens-body");
   tbody.innerHTML = "";
-  data.tokens.forEach((t) => {
+  clonedTokens.forEach((t) => {
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td><strong>${escapeHtml(t.text)}</strong></td>
@@ -1478,8 +1482,50 @@ function renderEnglishResult(data) {
   enResult.classList.remove("hidden");
 
   const treeContainer = document.getElementById("en-tree");
-  treeContainer.innerHTML = buildHierarchicalTreeSvg(data.tokens, data.chunks);
+  treeContainer.innerHTML = buildHierarchicalTreeSvg(clonedTokens, clonedChunks);
   fitTreeToContainer();
+}
+
+function renderEnglishResult(data) {
+  const interpretations = Array.isArray(data.interpretations) ? data.interpretations : [];
+
+  if (interpretationTabs) {
+    interpretationTabs.innerHTML = "";
+    if (interpretations.length >= 2) {
+      const labelSpan = document.createElement("span");
+      labelSpan.className = "interpretation-label";
+      labelSpan.textContent = "解釈の切替";
+      interpretationTabs.appendChild(labelSpan);
+
+      const btnGroup = document.createElement("div");
+      btnGroup.className = "interpretation-btn-group";
+
+      interpretations.forEach((item, idx) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = `interpretation-tab-btn${idx === 0 ? " active" : ""}`;
+        btn.textContent = item.label || item.key || `解釈${idx + 1}`;
+        btn.setAttribute("aria-pressed", String(idx === 0));
+        btn.addEventListener("click", () => {
+          btnGroup.querySelectorAll(".interpretation-tab-btn").forEach((b, bIdx) => {
+            const isActive = bIdx === idx;
+            b.classList.toggle("active", isActive);
+            b.setAttribute("aria-pressed", String(isActive));
+          });
+          renderEnglishInterpretation(item, data.text);
+        });
+        btnGroup.appendChild(btn);
+      });
+
+      interpretationTabs.appendChild(btnGroup);
+      interpretationTabs.classList.remove("hidden");
+      renderEnglishInterpretation(interpretations[0], data.text);
+      return;
+    }
+    interpretationTabs.classList.add("hidden");
+  }
+
+  renderEnglishInterpretation(data, data.text);
 }
 
 // 品詞の日本語表記マップ
