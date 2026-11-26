@@ -615,6 +615,11 @@ function hasRelativeModifierSubChunk(chunk) {
 const RELATIVE_WORD_REGEX = /^(who|whom|whose|which|that|where|when|why|what|whatever|whoever|whomever|whichever|wherever|whenever|however)$/i;
 const PREP_RELATIVE_REGEX = /^(in|on|at|to|for|from|with|by|of|about|through|under|over|between|among|into|onto|upon|within|without|during|after|before|against|toward|towards)\s+(which|whom|whose)$/i;
 const FREE_REL_REGEX = /^(what|whatever|whoever|whomever|whichever|wherever|whenever|however)$/i;
+const INTERROGATIVE_WORD_REGEX = /^(who|whom|whose|which|what|when|where|why|how|whether|if)$/i;
+const INTERROGATIVE_NO_IF_REGEX = /^(who|whom|whose|which|what|when|where|why|how|whether)$/i;
+const INTERROGATIVE_PHRASE_LEAD_REGEX = /^(what|which|whose|how)\s+/i;
+const PREP_INTERROGATIVE_REGEX = /^(in|on|at|to|for|from|with|by|of|about|through|under|over|between|among|into|onto|upon|within|without|during|after|before|against|toward|towards)\s+(who|whom|whose|which|what|where|when|how)\b/i;
+const REL_ADJ_PHRASE_REGEX = /^(?:(?:in|on|at|to|for|from|with|by|of|about|through|under|over|between|among|into|onto|upon|within|without|during|after|before|against|toward|towards)\s+)?(which|what|whose)\b/i;
 
 function isConjunctiveAdverbHoweverChunk(chunk, tokens) {
   const clean = String((chunk && chunk.text) || "").trim().toLowerCase();
@@ -796,9 +801,83 @@ function isIndirectQuestionWhatChunk(chunk, tokens, isInsideRelClause, isQuestio
   return false;
 }
 
-function isRelativeChunkText(text, isInsideRelClause, isQuestionOrExclamativeStart) {
+function isIndirectQuestionChunk(
+  chunk,
+  chunkList,
+  idx,
+  tokens,
+  parentClauseType,
+  isInsideRelClause,
+  isQuestionOrExclamativeStart
+) {
+  if (isInsideRelClause || isQuestionOrExclamativeStart) return false;
+  const pType = String(parentClauseType || "");
+  if (/関係形容詞/.test(pType)) return false;
+
+  const clean = String((chunk && chunk.text) || "").trim();
+  if (!clean) return false;
+
+  // 1. バックエンドで「間接疑問節」と判定された節の先頭疑問詞・疑問詞句
+  if (/間接疑問/.test(pType)) {
+    if (
+      idx === 0 &&
+      (INTERROGATIVE_WORD_REGEX.test(clean) ||
+        INTERROGATIVE_PHRASE_LEAD_REGEX.test(clean) ||
+        PREP_INTERROGATIVE_REGEX.test(clean))
+    ) {
+      return true;
+    }
+  }
+
+  // 2. 疑問詞＋to不定詞 (what to do / how to swim / whether to go / which book to buy 等)
+  const hasFollowingToInf =
+    Array.isArray(chunkList) &&
+    idx === 0 &&
+    chunkList.some(
+      (other, oIdx) =>
+        oIdx > idx && String(other.role || "").startsWith("to不定詞")
+    );
+  if (hasFollowingToInf && !/後置修飾/.test(pType)) {
+    if (
+      INTERROGATIVE_NO_IF_REGEX.test(clean) ||
+      INTERROGATIVE_PHRASE_LEAD_REGEX.test(clean) ||
+      (PREP_INTERROGATIVE_REGEX.test(clean) && !PREP_RELATIVE_REGEX.test(clean))
+    ) {
+      return true;
+    }
+  }
+
+  // 3. 名詞節先頭の what 以外の疑問詞・疑問詞句 (who/where/when/why/how/which/whose/whether)
+  if (/名詞節/.test(pType) && idx === 0 && clean.toLowerCase() !== "what") {
+    if (
+      INTERROGATIVE_NO_IF_REGEX.test(clean) ||
+      INTERROGATIVE_PHRASE_LEAD_REGEX.test(clean) ||
+      PREP_INTERROGATIVE_REGEX.test(clean)
+    ) {
+      return true;
+    }
+  }
+
+  // 4. 従来の what 間接疑問判定（疑問述語・否定述語・There is no doing 等）
+  return isIndirectQuestionWhatChunk(
+    chunk,
+    tokens,
+    isInsideRelClause,
+    isQuestionOrExclamativeStart
+  );
+}
+
+function isRelativeChunkText(
+  text,
+  isInsideRelClause,
+  isQuestionOrExclamativeStart,
+  parentClauseType = ""
+) {
   const clean = String(text || "").trim();
   if (!clean) return false;
+  if (/関係形容詞/.test(parentClauseType || "") && REL_ADJ_PHRASE_REGEX.test(clean)) {
+    return true;
+  }
   if (PREP_RELATIVE_REGEX.test(clean)) return true;
   if (isInsideRelClause && RELATIVE_WORD_REGEX.test(clean)) return true;
   if (!isQuestionOrExclamativeStart && FREE_REL_REGEX.test(clean)) return true;
@@ -813,6 +892,11 @@ function annotateSpecialRolesAndRelatives(chunks, tokens, fullText = "") {
 
   function processChunkList(chunkList, parentClauseType = "") {
     if (!Array.isArray(chunkList) || chunkList.length === 0) return;
+
+    const origClauseTypes = new Map();
+    chunkList.forEach((c) => {
+      origClauseTypes.set(c, c.clause_type || "");
+    });
 
     // 1. 形式主語 (It) と 真主語 の検出
     const sChunks = chunkList.filter((c) => c.role === "S");
@@ -918,7 +1002,7 @@ function annotateSpecialRolesAndRelatives(chunks, tokens, fullText = "") {
       }
     });
 
-    // 3. 間接疑問および関係詞の検出（関係詞節・非制限関係詞節・複合関係詞節の先頭関係詞）
+    // 3. 間接疑問および関係詞の検出（間接疑問節・wh+to不定詞・関係詞節・非制限関係詞節・関係形容詞・複合関係詞節の先頭要素）
     const isRelContext =
       /関係詞/.test(parentClauseType || "") && !/関係詞省略/.test(parentClauseType || "");
     chunkList.forEach((c, idx) => {
@@ -928,7 +1012,15 @@ function annotateSpecialRolesAndRelatives(chunks, tokens, fullText = "") {
       if (
         idx <= 1 &&
         !isConjunctiveAdverbHoweverChunk(c, tokens) &&
-        isIndirectQuestionWhatChunk(c, tokens, isRelContext, isQOrExcl)
+        isIndirectQuestionChunk(
+          c,
+          chunkList,
+          idx,
+          tokens,
+          parentClauseType,
+          isRelContext,
+          isQOrExcl
+        )
       ) {
         const iqLabel = `間接疑問${caseSuffix}`;
         c.role = "間接疑問";
@@ -942,7 +1034,7 @@ function annotateSpecialRolesAndRelatives(chunks, tokens, fullText = "") {
       } else if (
         idx <= 1 &&
         !isConjunctiveAdverbHoweverChunk(c, tokens) &&
-        isRelativeChunkText(c.text, isRelContext, isQOrExcl)
+        isRelativeChunkText(c.text, isRelContext, isQOrExcl, parentClauseType)
       ) {
         const relLabel = `関係詞${caseSuffix}`;
         c.role = "関係詞";
@@ -956,7 +1048,7 @@ function annotateSpecialRolesAndRelatives(chunks, tokens, fullText = "") {
       }
 
       if (Array.isArray(c.sub_chunks) && c.sub_chunks.length > 0) {
-        processChunkList(c.sub_chunks, c.clause_type || "");
+        processChunkList(c.sub_chunks, origClauseTypes.get(c) || c.clause_type || "");
       }
     });
   }
