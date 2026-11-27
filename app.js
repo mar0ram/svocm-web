@@ -556,7 +556,7 @@ function isAdnominalHeadSubChunk(sub, parentChunk = null) {
 function hasAdnominalModifierSubChunk(chunk) {
   if (!chunk || !Array.isArray(chunk.sub_chunks) || chunk.sub_chunks.length < 2) return false;
   if (isCoordContainerRole(chunk.role)) return false;
-  if (chunk.clause_type && /節|構文|不定詞|動名詞|動詞|前置詞/.test(chunk.clause_type)) {
+  if (chunk.clause_type && /節|構文|不定詞|動名詞|動詞|前置詞|並列/.test(chunk.clause_type)) {
     return false;
   }
   const hasPredicateOrPrep = chunk.sub_chunks.some((s) =>
@@ -564,13 +564,24 @@ function hasAdnominalModifierSubChunk(chunk) {
   );
   if (hasPredicateOrPrep) return false;
 
-  const firstModIdx = chunk.sub_chunks.findIndex(
-    (s) =>
-      s.role === "M" &&
+  const isPlainCoordMList =
+    chunk.role === "M" && chunk.sub_chunks.some((s) => s.role === "Conj");
+  const firstModIdx = chunk.sub_chunks.findIndex((s, idx) => {
+    if (s.role !== "M") return false;
+    if (
       s.clause_type &&
       /関係詞|接触節|分詞句|同格節|後置修飾|前置詞/.test(s.clause_type) &&
       !/複合関係詞/.test(s.clause_type)
-  );
+    ) {
+      return true;
+    }
+    return (
+      !s.clause_type &&
+      !isPlainCoordMList &&
+      idx > 0 &&
+      chunk.sub_chunks[idx - 1].role !== "Conj"
+    );
+  });
   if (firstModIdx <= 0) return false;
 
   return chunk.sub_chunks
@@ -1059,14 +1070,16 @@ function getChunkGrayLevel(chunk) {
     return 0;
   }
   if (hasAdnominalModifierSubChunk(chunk)) {
+    let hasNestedMod = false;
     let maxModLevel = 0;
     chunk.sub_chunks.forEach((sub) => {
       if (Array.isArray(sub.sub_chunks) && sub.sub_chunks.length > 0) {
+        hasNestedMod = true;
         const lv = getChunkGrayLevel(sub);
         if (lv > maxModLevel) maxModLevel = lv;
       }
     });
-    return clampGrayLevel(maxModLevel + 1);
+    return hasNestedMod ? clampGrayLevel(maxModLevel + 1) : 0;
   }
   let maxRequiredLevel = 0;
   chunk.sub_chunks.forEach((sub) => {
@@ -1203,6 +1216,12 @@ function appendFlattenedModifierItems(container, subChunkList, forceGrayScale, c
           ? `mod-clause-group role-同格${itemBorderSuffix}`
           : `mod-clause-group m-shade-${subLv}${itemBorderSuffix}`;
         appendFlattenedModifierItems(groupWrap, item.sub_chunks, !allApposItems, subLv);
+        if (item.displayRoleLabel && /真主語|真目的語/.test(item.displayRoleLabel)) {
+          const groupRoleBadge = document.createElement("span");
+          groupRoleBadge.className = "chunk-role";
+          groupRoleBadge.textContent = item.displayRoleLabel;
+          groupWrap.appendChild(groupRoleBadge);
+        }
         container.appendChild(groupWrap);
       }
     } else {
