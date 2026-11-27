@@ -369,6 +369,30 @@ textarea:focus {
   user-select: none;
 }
 
+.sub-chunk-sep.sep-equal {
+  color: #0d9488;
+  font-weight: 800;
+  font-size: 1.05rem;
+  padding: 0 4px;
+}
+
+.chunk-equal-sep {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #0f766e;
+  background-color: #f0fdfa;
+  border: 1.5px solid #14b8a6;
+  border-radius: 999px;
+  font-weight: 800;
+  font-size: 0.95rem;
+  line-height: 1;
+  padding: 3px 12px;
+  margin: -4px 0;
+  user-select: none;
+}
+
 /* 入れ子の内側の節をまとめるグレー枠 */
 .mod-clause-group {
   display: inline-flex;
@@ -460,6 +484,12 @@ b.role-c { background-color: #d97706; color: #fff; }
 .inline-chunk-item.role-強調部分 > .chunk-role,
 .gray-role-強調部分 > .chunk-role { background-color: #7c3aed; color: #ffffff; }
 .gray-role-強調部分 { background-color: #f5f3ff; border-color: #8b5cf6; color: #4c1d95; }
+
+.role-同格 { border-color: #14b8a6; background-color: #f0fdfa; color: #115e59; }
+.role-同格 > .chunk-role,
+.role-同格 > .chunk-nested-header .chunk-role,
+.inline-chunk-item.role-同格 > .chunk-role { background-color: #0d9488; color: #ffffff; }
+.mod-clause-group.role-同格 { border-color: #14b8a6; background-color: #f0fdfa; }
 
 /* チャンク（節）単位のグレースケール定義（入れ子の内[0:薄] → 外[3:濃]） */
 .role-M, .role-m, .role-関係詞, .role-間接疑問, .role-前置詞, .role-動名詞, .role-分詞, .role-並列述部, .role-並列節, .m-shade-0 {
