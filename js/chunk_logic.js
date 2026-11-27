@@ -128,6 +128,7 @@ export function hasRelativeModifierSubChunk(chunk) {
 
 // ⑤ 関係詞の判定および「形式主語・真主語・形式目的語・真目的語」の()付きラベル付与を行う関数
 const RELATIVE_WORD_REGEX = /^(who|whom|whose|which|that|where|when|why|what|whatever|whoever|whomever|whichever|wherever|whenever|however)$/i;
+const CLEFT_RELATIVE_PRONOUN_REGEX = /^(who|whom|whose|which)$/i;
 const PREP_RELATIVE_REGEX = /^(in|on|at|to|for|from|with|by|of|about|through|under|over|between|among|into|onto|upon|within|without|during|after|before|against|toward|towards)\s+(which|whom|whose)$/i;
 const FREE_REL_REGEX = /^(what|whatever|whoever|whomever|whichever|wherever|whenever|however)$/i;
 const INTERROGATIVE_WORD_REGEX = /^(who|whom|whose|which|what|when|where|why|how|whether|if)$/i;
@@ -390,10 +391,13 @@ function isRelativeChunkText(
 ) {
     const clean = String(text || "").trim();
     if (!clean) return false;
+    const isCleftClause = /強調構文/.test(parentClauseType || "");
+    if (isCleftClause && /^that$/i.test(clean)) return false;
     if (/関係形容詞/.test(parentClauseType || "") && REL_ADJ_PHRASE_REGEX.test(clean)) {
         return true;
     }
     if (PREP_RELATIVE_REGEX.test(clean)) return true;
+    if (isCleftClause && CLEFT_RELATIVE_PRONOUN_REGEX.test(clean)) return true;
     if (isInsideRelClause && RELATIVE_WORD_REGEX.test(clean)) return true;
     if (!isQuestionOrExclamativeStart && FREE_REL_REGEX.test(clean)) return true;
     return false;
