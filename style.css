@@ -74,32 +74,6 @@ body {
   background: currentColor;
 }
 
-/* タブ */
-.tabs {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 16px;
-}
-
-.tab-btn {
-  flex: 1;
-  padding: 12px;
-  border: 1px solid #cbd5e1;
-  background: #ffffff;
-  border-radius: 8px;
-  font-size: 0.95rem;
-  font-weight: 600;
-  color: #475569;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.tab-btn.active {
-  background: #2563eb;
-  color: #ffffff;
-  border-color: #2563eb;
-}
-
 /* 入力セクション */
 .input-section {
   background: #ffffff;
@@ -290,19 +264,12 @@ textarea:focus {
   border-color: #2563eb;
 }
 
-/* SVOCM チャンク表示（英語は縦並び、日本語は常時横並び） */
+/* SVOCM チャンク表示 */
 .chunks-container {
   display: flex;
   flex-direction: column;
   gap: 10px;
   margin-bottom: 16px;
-}
-
-#ja-clauses.chunks-container {
-  flex-direction: row;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: 10px;
 }
 
 .chunk-box {
@@ -316,11 +283,6 @@ textarea:focus {
   border-radius: 8px;
   border: 2px solid transparent;
   background: #f8fafc;
-}
-
-#ja-clauses .chunk-box {
-  width: auto;
-  max-width: 100%;
 }
 
 .chunk-box.chunk-nested {
@@ -824,26 +786,6 @@ details[open] > .collapsible-summary::after {
 .grammar-none-item {
   color: #94a3b8;
   font-size: 0.85rem;
-}
-
-/* 日本語ガイド */
-.guide-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 12px;
-}
-
-.guide-card {
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  padding: 12px;
-}
-
-.guide-card h4 {
-  font-size: 0.9rem;
-  color: #2563eb;
-  margin-bottom: 6px;
 }
 
 /* モーダル・エラー・ローディング */

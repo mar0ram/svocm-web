@@ -31,12 +31,6 @@
       </div>
     </header>
 
-    <!-- モード切り替えタブ -->
-    <div class="tabs">
-      <button class="tab-btn active" data-mode="english" type="button">英文分析</button>
-      <button class="tab-btn" data-mode="japanese" type="button">日本語分析</button>
-    </div>
-
     <!-- 入力エリア -->
     <div class="input-section">
       <textarea id="input-text" rows="3" spellcheck="true" placeholder="ここに分析したい英文を入力してください（例: Reading English books makes your vocabulary richer.）"></textarea>
@@ -133,19 +127,6 @@
           </div>
         </div>
       </details>
-    </div>
-
-    <!-- 日本語分析の結果エリア -->
-    <div id="ja-result" class="result-section hidden">
-      <div class="card">
-        <h3>英語語順（S → V → O/C → M）への変換ガイド</h3>
-        <div id="ja-order-guide" class="guide-grid"></div>
-      </div>
-
-      <div class="card">
-        <h3>チャンク（意味の塊）ごとの構造</h3>
-        <div id="ja-clauses" class="chunks-container"></div>
-      </div>
     </div>
   </div>
 

@@ -1,8 +1,6 @@
 // ★ここにRenderで発行されたURLを設定してください（末尾の / は不要）
 const API_BASE_URL = "https://svocm-api.onrender.com";
 
-let currentMode = "english";
-
 // DOM要素の取得
 const authModal = document.getElementById("auth-modal");
 const passwordInput = document.getElementById("password-input");
@@ -13,7 +11,6 @@ const logoutBtn = document.getElementById("logout-btn");
 const serverStatus = document.getElementById("server-status");
 const statusText = document.getElementById("status-text");
 
-const tabBtns = document.querySelectorAll(".tab-btn");
 const inputText = document.getElementById("input-text");
 const clearBtn = document.getElementById("clear-btn");
 const analyzeBtn = document.getElementById("analyze-btn");
@@ -32,7 +29,6 @@ const errorBox = document.getElementById("error-box");
 const warningBox = document.getElementById("warning-box");
 const loadingBox = document.getElementById("loading");
 const enResult = document.getElementById("en-result");
-const jaResult = document.getElementById("ja-result");
 const interpretationTabs = document.getElementById("en-interpretation-tabs");
 
 // 頻出英単語スペルミス辞書
@@ -221,7 +217,6 @@ if (clearBtn) {
     errorBox.classList.add("hidden");
     if (warningBox) warningBox.classList.add("hidden");
     enResult.classList.add("hidden");
-    jaResult.classList.add("hidden");
     inputText.focus();
   });
 }
@@ -262,26 +257,6 @@ if (zoomFitBtn) {
   zoomFitBtn.addEventListener("click", () => fitTreeToContainer());
 }
 
-// 3. 英語 / 日本語モードの切り替え
-tabBtns.forEach((btn) => {
-  btn.addEventListener("click", () => {
-    tabBtns.forEach((b) => b.classList.remove("active"));
-    btn.classList.add("active");
-    currentMode = btn.dataset.mode;
-
-    errorBox.classList.add("hidden");
-    if (warningBox) warningBox.classList.add("hidden");
-    enResult.classList.add("hidden");
-    jaResult.classList.add("hidden");
-
-    if (currentMode === "english") {
-      inputText.placeholder = "ここに分析したい英文を入力してください（例: Reading English books makes your vocabulary richer.）";
-    } else {
-      inputText.placeholder = "ここに英訳したい日本語文を入力してください（例: 私が昨日見た男性はその少年の父親だった。）";
-    }
-  });
-});
-
 // 英語入力時の全角スペース・全角英数記号・スマートクォートを自動正規化
 function normalizeEnglishInput(text) {
   return String(text || "")
@@ -295,20 +270,13 @@ function normalizeEnglishInput(text) {
     .trim();
 }
 
-// ① 入力言語のバリデーション（英語モードは英語のみ、日本語モードは日本語のみ）
-function validateLanguageInput(text, mode) {
+// ① 入力言語のバリデーション（英語のみ）
+function validateLanguageInput(text) {
   const hasJaChars = /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF\u3400-\u4DBF\u3000-\u303F\uFF01-\uFF60]/.test(text);
-  const hasKanaOrKanji = /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF\u3400-\u4DBF]/.test(text);
   const hasEnAlpha = /[a-zA-Z]/.test(text);
 
-  if (mode === "english") {
-    if (hasJaChars || !hasEnAlpha) {
-      return "英文分析モードでは英語で入力してください（日本語や全角記号が含まれているか、英単語が入力されていません）。";
-    }
-  } else if (mode === "japanese") {
-    if (!hasKanaOrKanji) {
-      return "日本語分析モードでは日本語で入力してください。";
-    }
+  if (hasJaChars || !hasEnAlpha) {
+    return "英語で入力してください（日本語や全角記号が含まれているか、英単語が入力されていません）。";
   }
   return null;
 }
@@ -444,7 +412,7 @@ async function checkEnglishSpelling(text) {
 // 4. 分析リクエストの送信
 analyzeBtn.addEventListener("click", async () => {
   const rawText = inputText.value.trim();
-  const text = currentMode === "english" ? normalizeEnglishInput(rawText) : rawText;
+  const text = normalizeEnglishInput(rawText);
   const token = sessionStorage.getItem("svocm_api_token");
 
   if (!token) {
@@ -461,24 +429,21 @@ analyzeBtn.addEventListener("click", async () => {
   if (warningBox) warningBox.classList.add("hidden");
 
   // ① 言語チェック（不一致の場合は警告を出して分析しない）
-  const langError = validateLanguageInput(text, currentMode);
+  const langError = validateLanguageInput(text);
   if (langError) {
     showError(langError);
     return;
   }
 
   enResult.classList.add("hidden");
-  jaResult.classList.add("hidden");
   loadingBox.classList.remove("hidden");
   analyzeBtn.disabled = true;
 
-  const endpoint = currentMode === "english" ? "/analyze/english" : "/analyze/japanese";
-
   try {
-    // 英語モードの場合はスペルチェックとAPI解析を並行実行
-    const spellPromise = currentMode === "english" ? checkEnglishSpelling(text) : Promise.resolve([]);
+    // スペルチェックとAPI解析を並行実行
+    const spellPromise = checkEnglishSpelling(text);
 
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    const response = await fetch(`${API_BASE_URL}/analyze/english`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -508,11 +473,7 @@ analyzeBtn.addEventListener("click", async () => {
     serverStatus.className = "status-badge online";
     statusText.textContent = "サーバー準備完了";
 
-    if (currentMode === "english") {
-      renderEnglishResult(data);
-    } else {
-      renderJapaneseResult(data);
-    }
+    renderEnglishResult(data);
   } catch (err) {
     showError(err.message || "サーバーとの通信に失敗しました。URLまたはネットワークを確認してください。");
   } finally {
@@ -3088,32 +3049,6 @@ function buildHierarchicalTreeSvg(tokens, chunks) {
   });
 
   return `<svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg" style="display: block; margin: 0 auto;">${svgContent}</svg>`;
-}
-
-// 6. 日本語分析結果の描画（入れ子の内から外に行くにつれて濃いグレーに対応）
-function renderJapaneseResult(data) {
-  const guideContainer = document.getElementById("ja-order-guide");
-  guideContainer.innerHTML = "";
-
-  const guide = data.english_order_guide;
-  Object.keys(guide).forEach((key) => {
-    const card = document.createElement("div");
-    card.className = "guide-card";
-    const items = guide[key].length ? guide[key].join(" / ") : "（なし）";
-    card.innerHTML = `
-      <h4>${escapeHtml(key)}</h4>
-      <p><strong>${escapeHtml(items)}</strong></p>
-    `;
-    guideContainer.appendChild(card);
-  });
-
-  const clausesContainer = document.getElementById("ja-clauses");
-  clausesContainer.innerHTML = "";
-  data.clauses.forEach((c) => {
-    clausesContainer.appendChild(createChunkElement(c));
-  });
-
-  jaResult.classList.remove("hidden");
 }
 
 function showError(msg) {
