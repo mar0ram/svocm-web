@@ -1,0 +1,383 @@
+/* 判定文型ヘッダー */
+.pattern-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 18px;
+}
+
+.pattern-badge {
+    background: var(--text-body);
+    color: #ffffff;
+    padding: 6px 16px;
+    border-radius: var(--radius-md);
+    font-weight: 700;
+    font-size: 1.1rem;
+}
+
+/* タフ文・形式主語などの解釈切り替えタブ */
+.interpretation-tabs {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 18px;
+    padding: 10px 14px;
+    background: var(--bg-subtle);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+}
+
+.interpretation-label {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.interpretation-btn-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.interpretation-tab-btn {
+    padding: 6px 14px;
+    border: 1px solid var(--border-base);
+    background: var(--bg-surface);
+    color: var(--text-secondary);
+    border-radius: var(--radius-sm);
+    font-size: 0.88rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.interpretation-tab-btn:hover {
+    background: var(--primary-soft);
+    border-color: var(--primary-border);
+    color: var(--primary-hover);
+}
+
+.interpretation-tab-btn.active {
+    background: var(--primary);
+    color: #ffffff;
+    border-color: var(--primary);
+}
+
+/* SVOCM チャンク表示 */
+.chunks-container {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+.chunk-box {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    width: 100%;
+    padding: 12px 16px;
+    border-radius: var(--radius-md);
+    border: 2px solid transparent;
+    background: var(--bg-subtle);
+}
+
+.chunk-box.chunk-nested {
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 10px;
+    border-style: dashed;
+}
+
+.chunk-nested-header {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+    font-size: 0.95rem;
+    font-weight: 700;
+}
+
+.chunk-header-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.chunk-toggle-btn {
+    background: var(--bg-surface);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-strong);
+    padding: 4px 10px;
+    border-radius: var(--radius-sm);
+    font-size: 0.8rem;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.chunk-toggle-btn:hover {
+    background: var(--bg-muted);
+    border-color: var(--text-muted);
+}
+
+/* 展開される内側コンテナ（横に連結して折り返す） */
+.sub-chunks-container {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 10px 14px;
+    margin-left: 4px;
+    background: rgba(255, 255, 255, 0.92);
+    border-radius: var(--radius-md);
+    border: 1px solid rgba(148, 163, 184, 0.45);
+    --role-badge: initial;
+}
+
+.inline-chunk-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    border-radius: var(--radius-sm);
+    border: 1.5px solid transparent;
+    font-size: 0.95rem;
+    font-weight: 600;
+}
+
+.inline-chunk-text {
+    line-height: 1.35;
+}
+
+.sub-chunk-sep {
+    color: var(--text-faint);
+    font-weight: 700;
+    font-size: 1rem;
+    padding: 0 2px;
+    user-select: none;
+}
+
+.sub-chunk-sep.sep-equal {
+    color: #0d9488;
+    font-weight: 800;
+    font-size: 1.05rem;
+    padding: 0 4px;
+}
+
+.chunk-equal-sep {
+    align-self: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #0f766e;
+    background-color: #f0fdfa;
+    border: 1.5px solid #14b8a6;
+    border-radius: 999px;
+    font-weight: 800;
+    font-size: 0.95rem;
+    line-height: 1;
+    padding: 3px 12px;
+    margin: -4px 0;
+    user-select: none;
+}
+
+/* 入れ子の内側の節・並列述部/並列節をまとめるコンテナ枠 */
+.mod-clause-group,
+.coord-block-group {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border-radius: var(--radius-md);
+}
+
+.mod-clause-group {
+    border: 1.5px dashed var(--border-strong);
+    background-color: rgba(255, 255, 255, 0.75);
+}
+
+.coord-block-group {
+    border: 2px solid var(--border-strong);
+    background-color: var(--bg-muted);
+}
+
+.chunk-text {
+    font-size: 1.1rem;
+    font-weight: 600;
+    line-height: 1.45;
+    word-break: break-word;
+    flex: 1 1 auto;
+}
+
+.chunk-role {
+    font-size: 0.82rem;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: var(--radius-sm);
+    color: #ffffff;
+    white-space: nowrap;
+    flex-shrink: 0;
+    text-align: center;
+}
+
+/* SVOCM カラー・4段階グレーの共通適用 */
+:is(.role-S, .role-V, .role-VC, .role-O, .role-C,
+    .role-強調部分, .role-同格,
+    .role-M, .role-関係詞, .role-間接疑問, .role-前置詞,
+    .role-動名詞, .role-分詞, .role-並列述部, .role-並列節,
+    .role-Conj, .m-shade-0, .m-shade-1, .m-shade-2, .m-shade-3) {
+    border-color: var(--role-border);
+    background-color: var(--role-bg);
+}
+
+.chunk-box>.chunk-role,
+.chunk-box>.chunk-nested-header .chunk-role,
+.inline-chunk-item>.chunk-role,
+.mod-clause-group>.chunk-role {
+    background-color: var(--role-badge, var(--text-subtle));
+    color: #ffffff;
+}
+
+/* 主節のS/V/O/C・強調部分・同格・接続詞 */
+.role-S,
+.role-s {
+    --role-border: #3b82f6;
+    --role-bg: #eff6ff;
+    --role-badge: #2563eb;
+}
+
+.role-V,
+.role-v,
+.role-VC {
+    --role-border: #ef4444;
+    --role-bg: #fef2f2;
+    --role-badge: #dc2626;
+}
+
+.role-O,
+.role-o {
+    --role-border: #10b981;
+    --role-bg: #ecfdf5;
+    --role-badge: #059669;
+}
+
+.role-C,
+.role-c {
+    --role-border: #f59e0b;
+    --role-bg: #fffbeb;
+    --role-badge: #d97706;
+}
+
+.role-強調部分 {
+    --role-border: #8b5cf6;
+    --role-bg: #f5f3ff;
+    --role-badge: #7c3aed;
+}
+
+.role-同格 {
+    --role-border: #14b8a6;
+    --role-bg: #f0fdfa;
+    --role-badge: #0d9488;
+    color: #115e59;
+}
+
+.role-Conj {
+    --role-border: #cbd5e1;
+    --role-bg: #f8fafc;
+    --role-badge: #94a3b8;
+}
+
+/* チャンク（節）単位のグレースケール定義（入れ子の内[0:薄] → 外[3:濃]） */
+.role-M,
+.role-m,
+.role-関係詞,
+.role-間接疑問,
+.role-前置詞,
+.role-動名詞,
+.role-分詞,
+.role-並列述部,
+.role-並列節,
+.m-shade-0 {
+    --role-border: #94a3b8;
+    --role-bg: #f1f5f9;
+    --role-badge: #64748b;
+    color: var(--text-body);
+}
+
+.m-shade-1 {
+    --role-border: #64748b;
+    --role-bg: #e2e8f0;
+    --role-badge: #475569;
+    color: var(--text-primary);
+}
+
+.m-shade-2 {
+    --role-border: #475569;
+    --role-bg: #cbd5e1;
+    --role-badge: #334155;
+    color: var(--text-primary);
+}
+
+.m-shade-3 {
+    --role-border: #334155;
+    --role-bg: #94a3b8;
+    --role-badge: #1e293b;
+    color: var(--text-primary);
+}
+
+/* 等位接続グループ (coord_group) 用の明るめで見やすい枠線カラー */
+:is(.chunk-box, .inline-chunk-item, .mod-clause-group, .coord-block-group).coord-border {
+    border-width: 2.5px;
+    border-color: var(--coord-color);
+}
+
+.coord-border-1 {
+    --coord-color: #06b6d4;
+}
+
+.coord-border-2 {
+    --coord-color: #ec4899;
+}
+
+.coord-border-3 {
+    --coord-color: #6366f1;
+}
+
+.coord-border-4 {
+    --coord-color: #f97316;
+}
+
+.coord-border-5 {
+    --coord-color: #65a30d;
+}
+
+/* 凡例 */
+.legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    padding-top: 8px;
+}
+
+.legend-item b {
+    padding: 2px 8px;
+    border-radius: 4px;
+    background-color: var(--role-badge);
+    color: #ffffff;
+}

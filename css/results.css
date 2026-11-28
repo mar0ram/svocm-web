@@ -1,0 +1,183 @@
+/* 統語ツリー SVG と拡大縮小コントロール */
+.zoom-controls {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--bg-subtle);
+    padding: 4px 8px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-light);
+}
+
+.zoom-btn {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-base);
+    color: var(--text-secondary);
+    border-radius: var(--radius-sm);
+    padding: 4px 10px;
+    font-size: 0.85rem;
+    font-weight: 700;
+    cursor: pointer;
+    line-height: 1.2;
+}
+
+.zoom-btn:hover {
+    background: var(--bg-muted);
+}
+
+.zoom-level {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--text-secondary);
+    min-width: 46px;
+    text-align: center;
+}
+
+.tree-container {
+    width: 100%;
+    overflow: auto;
+    padding: 12px 4px;
+    max-height: 75vh;
+    border: 1px solid var(--bg-muted);
+    border-radius: var(--radius-md);
+    background: var(--bg-surface);
+}
+
+/* タップで開閉する詳細データ（details / summary） */
+.collapsible-card {
+    padding: 0;
+    overflow: hidden;
+}
+
+.collapsible-summary {
+    padding: 16px 20px;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--text-secondary);
+    cursor: pointer;
+    user-select: none;
+    list-style: none;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: background 0.15s;
+}
+
+.collapsible-summary::-webkit-details-marker {
+    display: none;
+}
+
+.collapsible-summary::after {
+    content: "＋ 展開する";
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--primary);
+    background: var(--primary-soft);
+    padding: 4px 10px;
+    border-radius: var(--radius-sm);
+}
+
+details[open]>.collapsible-summary {
+    border-bottom: 1px solid var(--border-light);
+}
+
+details[open]>.collapsible-summary::after {
+    content: "− 閉じる";
+    color: var(--text-muted);
+    background: var(--bg-muted);
+}
+
+.collapsible-summary:hover {
+    background: var(--bg-subtle);
+}
+
+.collapsible-content {
+    padding: 16px 20px 20px;
+}
+
+/* テーブル共通（トークン一覧・文法網羅チェッカー） */
+.table-wrapper {
+    overflow-x: auto;
+}
+
+.token-table,
+.grammar-check-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+
+:is(.token-table, .grammar-check-table) :is(th, td) {
+    border-bottom: 1px solid var(--border-light);
+    text-align: left;
+}
+
+:is(.token-table, .grammar-check-table) th {
+    background: var(--bg-subtle);
+    color: var(--text-muted);
+}
+
+.token-table :is(th, td) {
+    padding: 8px 12px;
+}
+
+/* 文法網羅チェッカーテーブル */
+.grammar-check-table :is(th, td) {
+    padding: 10px 12px;
+    vertical-align: top;
+}
+
+.grammar-check-table th {
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.grammar-row-active {
+    background-color: var(--bg-surface);
+}
+
+.grammar-row-inactive {
+    background-color: var(--bg-subtle);
+    color: var(--text-faint);
+}
+
+.grammar-cat-badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: var(--radius-sm);
+    font-weight: 700;
+    font-size: 0.82rem;
+    white-space: nowrap;
+}
+
+.grammar-row-active .grammar-cat-badge {
+    background-color: var(--text-body);
+    color: #ffffff;
+}
+
+.grammar-row-inactive .grammar-cat-badge {
+    background-color: var(--border-light);
+    color: var(--text-subtle);
+}
+
+.grammar-target-desc {
+    font-size: 0.8rem;
+    color: var(--text-subtle);
+    min-width: 180px;
+}
+
+.grammar-detected-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.grammar-detected-item {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.grammar-none-item {
+    color: var(--text-faint);
+    font-size: 0.85rem;
+}
