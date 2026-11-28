@@ -13,6 +13,7 @@ import {
   renderTokensTable
 } from "./js/chunk_renderer.js";
 import { buildHierarchicalTreeSvg } from "./js/tree_renderer.js";
+import { addSearchHistory, initHistoryModal } from "./js/history.js";
 
 // ★ここにRenderで発行されたURLを設定してください（末尾の / は不要）
 const API_BASE_URL = "https://svocm-api.onrender.com";
@@ -21,6 +22,7 @@ const API_BASE_URL = "https://svocm-api.onrender.com";
 const authModal = document.getElementById("auth-modal");
 const passwordInput = document.getElementById("password-input");
 const authError = document.getElementById("auth-error");
+const authLoading = document.getElementById("auth-loading");
 const loginBtn = document.getElementById("login-btn");
 const logoutBtn = document.getElementById("logout-btn");
 
@@ -30,6 +32,7 @@ const statusText = document.getElementById("status-text");
 const inputText = document.getElementById("input-text");
 const clearBtn = document.getElementById("clear-btn");
 const analyzeBtn = document.getElementById("analyze-btn");
+const historyBtn = document.getElementById("history-btn");
 
 const zoomInBtn = document.getElementById("zoom-in-btn");
 const zoomOutBtn = document.getElementById("zoom-out-btn");
@@ -91,7 +94,12 @@ loginBtn.addEventListener("click", async () => {
   }
 
   loginBtn.disabled = true;
+  passwordInput.disabled = true;
+  loginBtn.textContent = "接続中...";
   authError.classList.add("hidden");
+  if (authLoading) authLoading.classList.remove("hidden");
+  serverStatus.className = "status-badge waking";
+  statusText.textContent = "サーバー起動中...";
 
   try {
     const response = await fetch(`${API_BASE_URL}/auth/verify`, {
@@ -105,6 +113,8 @@ loginBtn.addEventListener("click", async () => {
       sessionStorage.removeItem("svocm_api_token");
       authError.textContent = "パスワードが正しくありません。";
       authError.classList.remove("hidden");
+      serverStatus.className = "status-badge online";
+      statusText.textContent = "サーバー準備完了";
       return;
     }
 
@@ -120,8 +130,13 @@ loginBtn.addEventListener("click", async () => {
   } catch (err) {
     authError.textContent = "サーバーに接続できませんでした。起動完了後に再度お試しください。";
     authError.classList.remove("hidden");
+    serverStatus.className = "status-badge offline";
+    statusText.textContent = "サーバー接続待機中";
   } finally {
     loginBtn.disabled = false;
+    passwordInput.disabled = false;
+    loginBtn.textContent = "利用を開始する";
+    if (authLoading) authLoading.classList.add("hidden");
   }
 });
 
@@ -147,6 +162,17 @@ if (clearBtn) {
     inputText.focus();
   });
 }
+
+// 検索履歴ポップアップの初期化（選択時は入力欄へセットして自動再分析）
+initHistoryModal({
+  openBtn: historyBtn,
+  onSelect: (selectedText) => {
+    inputText.value = selectedText;
+    if (!analyzeBtn.disabled) {
+      analyzeBtn.click();
+    }
+  }
+});
 
 // 統語ツリーの拡大・縮小処理
 function applyTreeZoom(zoomValue) {
@@ -244,9 +270,10 @@ analyzeBtn.addEventListener("click", async () => {
       showWarning(`スペルミスの可能性がある単語が含まれています: ${spellWarnings.join(" / ")}`);
     }
 
-    // 通信成功時はステータスをオンラインに更新
+    // 通信成功時はステータスをオンラインに更新し、検索履歴へ保存
     serverStatus.className = "status-badge online";
     statusText.textContent = "サーバー準備完了";
+    addSearchHistory(text);
 
     renderEnglishResult(data);
   } catch (err) {
